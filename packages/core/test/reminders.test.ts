@@ -8,6 +8,7 @@ import {
   HOUR,
   isMissed,
   isOverdue,
+  newerOf,
   reopenReminder,
   rescheduleReminder,
   skipOccurrence,
@@ -64,9 +65,22 @@ describe('createReminder', () => {
 
 describe('completing', () => {
   it('marks a one-off reminder done', () => {
-    const done = completeReminder(oneOff(), NOW)
-    expect(done).toMatchObject({ status: 'done', completedAt: NOW, updatedAt: NOW })
-    expect(completeReminder(done, NOW + 1)).toBe(done)
+    const done = completeReminder(oneOff(), NOW + 5)
+    expect(done).toMatchObject({ status: 'done', completedAt: NOW + 5, updatedAt: NOW + 5 })
+    expect(completeReminder(done, NOW + 6)).toBe(done)
+  })
+
+  it('stamps every edit later than the version it replaces, even if that clock ran ahead', () => {
+    const fromFastClock = { ...oneOff(), updatedAt: NOW + 5 * 60_000 }
+    for (const edit of [
+      completeReminder(fromFastClock, NOW),
+      snoozeReminder(fromFastClock, NOW + HOUR, NOW),
+      updateReminder(fromFastClock, { title: 'Renamed' }, NOW),
+      deleteReminder(fromFastClock, NOW),
+    ]) {
+      expect(edit.updatedAt).toBe(fromFastClock.updatedAt + 1)
+      expect(newerOf(fromFastClock, edit)).toBe(edit)
+    }
   })
 
   it('advances a recurring reminder completed early to the following occurrence', () => {

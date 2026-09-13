@@ -1,4 +1,4 @@
-import { clean, tombstone } from './entity'
+import { clean, nextStamp, tombstone } from './entity'
 import { uuidv7 } from './ids'
 import type { CreateContext, Priority, Reminder, Source } from './model'
 import { buildRecurrence, nextOccurrence, rebaseRecurrence, type RecurrenceSpec } from './recurrence'
@@ -61,7 +61,7 @@ export function createReminder(input: ReminderInput, ctx: CreateContext): Remind
  * the whole series; to move a single occurrence use rescheduleReminder.
  */
 export function updateReminder(r: Reminder, changes: ReminderChanges, now: number): Reminder {
-  const next: Reminder = { ...r, updatedAt: now }
+  const next: Reminder = { ...r, updatedAt: nextStamp(r.updatedAt, now) }
   if (changes.title !== undefined) next.title = normalizeTitle(changes.title)
   if (changes.priority !== undefined) next.priority = changes.priority
   if (changes.tags !== undefined) next.tags = normalizeTags(changes.tags)
@@ -97,34 +97,34 @@ export function completeReminder(r: Reminder, now: number): Reminder {
   if (r.rrule) {
     const next = nextOccurrence(r.rrule, Math.max(now, r.dueAt))
     if (next !== null) {
-      return clean({ ...r, dueAt: next, status: 'pending', snoozedUntil: undefined, completedAt: now, updatedAt: now })
+      return clean({ ...r, dueAt: next, status: 'pending', snoozedUntil: undefined, completedAt: now, updatedAt: nextStamp(r.updatedAt, now) })
     }
   }
-  return clean({ ...r, status: 'done', snoozedUntil: undefined, completedAt: now, updatedAt: now })
+  return clean({ ...r, status: 'done', snoozedUntil: undefined, completedAt: now, updatedAt: nextStamp(r.updatedAt, now) })
 }
 
 /** Recurring only: move to the next occurrence without recording a completion. */
 export function skipOccurrence(r: Reminder, now: number): Reminder {
   if (!r.rrule || r.status === 'done') return r
   const next = nextOccurrence(r.rrule, Math.max(now, r.dueAt))
-  if (next === null) return clean({ ...r, status: 'done', snoozedUntil: undefined, updatedAt: now })
-  return clean({ ...r, dueAt: next, status: 'pending', snoozedUntil: undefined, updatedAt: now })
+  if (next === null) return clean({ ...r, status: 'done', snoozedUntil: undefined, updatedAt: nextStamp(r.updatedAt, now) })
+  return clean({ ...r, dueAt: next, status: 'pending', snoozedUntil: undefined, updatedAt: nextStamp(r.updatedAt, now) })
 }
 
 export function snoozeReminder(r: Reminder, until: number, now: number): Reminder {
   if (until <= now) throw new Error('Snooze has to end in the future')
   if (r.status === 'done') return r
-  return { ...r, status: 'snoozed', snoozedUntil: until, updatedAt: now }
+  return { ...r, status: 'snoozed', snoozedUntil: until, updatedAt: nextStamp(r.updatedAt, now) }
 }
 
 export function reopenReminder(r: Reminder, now: number): Reminder {
   if (r.status !== 'done') return r
-  return clean({ ...r, status: 'pending', completedAt: undefined, updatedAt: now })
+  return clean({ ...r, status: 'pending', completedAt: undefined, updatedAt: nextStamp(r.updatedAt, now) })
 }
 
 /** Moves this occurrence (not the series) and makes it active again. */
 export function rescheduleReminder(r: Reminder, dueAt: number, now: number, allDay = r.allDay): Reminder {
-  return clean({ ...r, dueAt, allDay, status: 'pending', snoozedUntil: undefined, updatedAt: now })
+  return clean({ ...r, dueAt, allDay, status: 'pending', snoozedUntil: undefined, updatedAt: nextStamp(r.updatedAt, now) })
 }
 
 export function deleteReminder(r: Reminder, now: number): Reminder {

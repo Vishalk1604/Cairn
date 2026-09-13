@@ -1,4 +1,4 @@
-import { clean, tombstone } from './entity'
+import { clean, nextStamp, tombstone } from './entity'
 import { uuidv7 } from './ids'
 import type { CreateContext, Note, Source } from './model'
 import { normalizeTags } from './reminders'
@@ -42,7 +42,7 @@ export function createNote(input: NoteInput, ctx: CreateContext): Note {
 
 /** Keeps the previous body in bodyPrev whenever the body changes. */
 export function updateNote(note: Note, changes: NoteChanges, now: number): Note {
-  const next: Note = { ...note, updatedAt: now }
+  const next: Note = { ...note, updatedAt: nextStamp(note.updatedAt, now) }
   if (changes.title !== undefined) next.title = changes.title.replace(/\s+/g, ' ').trim()
   if (changes.body !== undefined) {
     const body = changes.body.trim() ? changes.body : undefined

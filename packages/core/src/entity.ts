@@ -20,9 +20,18 @@ export function isLive(entity: Entity): boolean {
   return entity.deletedAt === undefined
 }
 
+/**
+ * The updatedAt for an edit of a version stamped `previous`: normally now, but
+ * always later than the version it replaces. Another device's clock may run
+ * ahead, and an edit must never lose last-write-wins to the thing it edited.
+ */
+export function nextStamp(previous: number, now: number): number {
+  return Math.max(now, previous + 1)
+}
+
 export function tombstone<T extends Entity>(entity: T, now: number): T {
   if (entity.deletedAt !== undefined) return entity
-  return { ...entity, deletedAt: now, updatedAt: now }
+  return { ...entity, deletedAt: now, updatedAt: nextStamp(entity.updatedAt, now) }
 }
 
 /**
