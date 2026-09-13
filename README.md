@@ -95,6 +95,19 @@ Not available yet. APK and EXE builds will be published on the [Releases](https:
 
 Two things to know ahead of time. The Windows build will be unsigned, so SmartScreen will show a warning (choose **More info → Run anyway**); every release will list a SHA-256 checksum so you can verify the file. And the Gmail features will open to a limited group of testers first, because Google caps unverified apps that read Gmail at 100 users.
 
+## Development
+
+Requires Node 20.19+ and pnpm 10.
+
+```sh
+pnpm install
+pnpm test          # all packages
+pnpm typecheck
+pnpm dev:desktop   # desktop UI at http://localhost:1420
+```
+
+The desktop UI runs in any browser during development, storing data in localStorage and using browser notifications. Inside Tauri the same code gets the system-wide hotkey, tray icon and native toasts. Date tests run in `America/New_York` so daylight-saving transitions are always exercised.
+
 ## License
 
 [MIT](LICENSE)
