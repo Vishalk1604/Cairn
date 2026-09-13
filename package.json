@@ -9,6 +9,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev:desktop": "pnpm --filter @cairn/desktop dev",
+    "dev:mobile": "pnpm --filter @cairn/mobile start",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck"
   },

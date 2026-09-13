@@ -104,9 +104,10 @@ pnpm install
 pnpm test          # all packages
 pnpm typecheck
 pnpm dev:desktop   # desktop UI at http://localhost:1420
+pnpm dev:mobile    # Expo dev server for the Android app
 ```
 
-The desktop UI runs in any browser during development, storing data in localStorage and using browser notifications. Inside Tauri the same code gets the system-wide hotkey, tray icon and native toasts. Date tests run in `America/New_York` so daylight-saving transitions are always exercised.
+The desktop UI runs in any browser during development, storing data in localStorage and using browser notifications. Inside Tauri the same code gets the system-wide hotkey, tray icon and native toasts. The Android app can also run in a browser (`pnpm --filter @cairn/mobile web`) for quick checks; notifications need a device build. Date tests run in `America/New_York` so daylight-saving transitions are always exercised.
 
 ## License
 
