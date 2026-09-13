@@ -1,7 +1,4 @@
 import { buildRecurrence, describeRecurrence, type Priority, type Reminder } from '@cairn/core'
-import { useState } from 'react'
-import { useActions } from '../app/actions'
-import { useModal } from '../app/useModal'
 import {
   ALERT_CHOICES,
   applyWhen,
@@ -12,7 +9,10 @@ import {
   inputFromDraft,
   type ReminderDraft,
   type RepeatChoice,
-} from '../reminderDraft'
+} from '@cairn/ui'
+import { useState } from 'react'
+import { useActions } from '../app/actions'
+import { useModal } from '../app/useModal'
 
 interface Props {
   /** Absent for a new reminder. */

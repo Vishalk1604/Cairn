@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@cairn/core": "workspace:*"
+    "@cairn/core": "workspace:*",
+    "@cairn/sync": "workspace:*"
   },
   "devDependencies": {
     "typescript": "~6.0.3",

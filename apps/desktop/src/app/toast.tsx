@@ -1,24 +1,15 @@
+import type { Toast } from '@cairn/ui'
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 
-export interface ToastInput {
-  message: string
-  action?: { label: string; run: () => void }
-  tone?: 'info' | 'error'
-}
+const ToastContext = createContext<(toast: Toast) => void>(() => {})
 
-interface Toast extends ToastInput {
-  id: number
-}
-
-const ToastContext = createContext<(toast: ToastInput) => void>(() => {})
-
-export function useToast(): (toast: ToastInput) => void {
+export function useToast(): (toast: Toast) => void {
   return useContext(ToastContext)
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [toast, setToast] = useState<Toast | null>(null)
-  const show = useCallback((input: ToastInput) => setToast({ ...input, id: Date.now() }), [])
+  const [toast, setToast] = useState<(Toast & { id: number }) | null>(null)
+  const show = useCallback((input: Toast) => setToast({ ...input, id: Date.now() }), [])
 
   useEffect(() => {
     if (!toast) return
