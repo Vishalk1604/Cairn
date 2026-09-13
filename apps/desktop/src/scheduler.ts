@@ -9,7 +9,7 @@ import {
   type Alert,
   type Reminder,
 } from '@cairn/core'
-import { formatDue } from '@cairn/ui'
+import { describeAlert } from '@cairn/ui'
 
 export interface SchedulerState {
   /** The instant the previous tick covered up to. */
@@ -84,12 +84,6 @@ export function planTick(
   }
 
   return { notifications, state: { lastTick: now, lastDigestDay } }
-}
-
-export function describeAlert(a: Alert, now: number, locale?: string): string {
-  if (a.kind === 'due') return a.allDay ? 'Due today' : 'Due now'
-  const when = formatDue(a.dueAt, a.allDay, now, { locale })
-  return a.dueAt <= now ? `Was due ${when}` : `Due ${when}`
 }
 
 function titles(alerts: readonly Alert[]): string {

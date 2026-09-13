@@ -49,14 +49,22 @@ export function toTimeInput(t: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** Parses "18:30" or "9:05". Null when it isn't a valid time of day. */
+export function parseTimeInput(time: string): { hour: number; minute: number } | null {
+  const t = /^(\d{1,2}):(\d{2})$/.exec(time.trim())
+  if (!t) return null
+  const hour = Number(t[1])
+  const minute = Number(t[2])
+  return hour <= 23 && minute <= 59 ? { hour, minute } : null
+}
+
 /** Local instant from the date and time inputs; all-day reminders alert at `defaultHour`. */
 export function fromInputs(date: string, time: string, defaultHour: number): number | null {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
   if (!d) return null
-  const t = /^(\d{2}):(\d{2})$/.exec(time)
-  if (time && !t) return null
-  const [hour, minute] = t ? [Number(t[1]), Number(t[2])] : [defaultHour, 0]
-  return new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3]), hour, minute).getTime()
+  const t = time.trim() ? parseTimeInput(time) : { hour: defaultHour, minute: 0 }
+  if (!t) return null
+  return new Date(Number(d[1]), Number(d[2]) - 1, Number(d[3]), t.hour, t.minute).getTime()
 }
 
 function weekdayOf(t: number): WeekdayCode {
@@ -138,6 +146,7 @@ interface DraftValues {
 function readDraft(draft: ReminderDraft, defaultHour: number): Checked<DraftValues> {
   const title = draft.title.trim()
   if (!title) return { ok: false, error: 'Give it a title' }
+  if (draft.time.trim() && !parseTimeInput(draft.time)) return { ok: false, error: 'Use a time like 18:30, or leave it empty for all day' }
   const dueAt = fromInputs(draft.date, draft.time, defaultHour)
   if (dueAt === null) return { ok: false, error: 'Pick a date' }
   return {
@@ -145,7 +154,7 @@ function readDraft(draft: ReminderDraft, defaultHour: number): Checked<DraftValu
     value: {
       title,
       dueAt,
-      allDay: draft.time === '',
+      allDay: draft.time.trim() === '',
       recurrence: specForChoice(draft.repeat, draft.customRule),
       priority: draft.priority,
       tags: draft.tags.split(/[\s,]+/).filter(Boolean),

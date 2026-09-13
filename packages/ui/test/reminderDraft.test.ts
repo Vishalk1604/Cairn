@@ -18,8 +18,17 @@ const ctx = { userId: 'u', now: NOW }
 describe('inputs', () => {
   it('reads date and time inputs as local time, all-day at the default hour', () => {
     expect(fromInputs('2026-09-18', '18:30', 9)).toBe(at(2026, 9, 18, 18, 30))
+    expect(fromInputs('2026-09-18', '9:05', 9)).toBe(at(2026, 9, 18, 9, 5))
     expect(fromInputs('2026-09-18', '', 9)).toBe(at(2026, 9, 18, 9))
     expect(fromInputs('', '18:30', 9)).toBeNull()
+    expect(fromInputs('2026-09-18', '25:00', 9)).toBeNull()
+  })
+
+  it('explains a bad time separately from a missing date', () => {
+    expect(inputFromDraft({ ...emptyDraft(NOW), title: 'x', time: '6pm' })).toEqual({
+      ok: false,
+      error: 'Use a time like 18:30, or leave it empty for all day',
+    })
   })
 })
 
