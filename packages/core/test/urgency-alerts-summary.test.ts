@@ -108,6 +108,10 @@ describe('alerts', () => {
     ])
   })
 
+  it('stays quiet when alerts are turned off', () => {
+    expect(alertsFor(due(at(2026, 9, 14, 18), { alertOffsets: [] }))).toEqual([])
+  })
+
   it('stops alerting when done', () => {
     expect(alertsFor(completeReminder(due(NOW + HOUR), NOW))).toEqual([])
     expect(nextAlertAt(due(NOW - MINUTE), NOW)).toBeNull()

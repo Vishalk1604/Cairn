@@ -81,7 +81,10 @@ export function updateReminder(r: Reminder, changes: ReminderChanges, now: numbe
     next.status = 'pending'
     next.snoozedUntil = undefined
   }
-  return clean(next.rrule ? alignToRule(next) : next)
+  // Only a schedule change re-anchors the rule; any other edit must leave the
+  // series (and its occurrence count) exactly as it was.
+  const scheduleChanged = timingChanged || changes.recurrence !== undefined
+  return clean(next.rrule && scheduleChanged ? alignToRule(next) : next)
 }
 
 /**
@@ -176,10 +179,11 @@ export function normalizeTags(tags: readonly string[] | undefined): string[] {
   return [...seen]
 }
 
+/** Absent means the default single alert at the due time; an empty list means silent. */
 function normalizeOffsets(offsets: readonly number[] | undefined): number[] | undefined {
   if (!offsets) return undefined
   const unique = [...new Set(offsets.filter((o) => Number.isFinite(o) && o >= 0).map((o) => Math.round(o)))]
   unique.sort((a, b) => b - a)
-  if (unique.length === 0 || (unique.length === 1 && unique[0] === 0)) return undefined
+  if (unique.length === 1 && unique[0] === 0) return undefined
   return unique
 }

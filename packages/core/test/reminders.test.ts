@@ -56,6 +56,10 @@ describe('createReminder', () => {
     expect(oneOff({ alertOffsets: [0] }).alertOffsets).toBeUndefined()
     expect(oneOff({ alertOffsets: [0, 60, 1440, 60] }).alertOffsets).toEqual([1440, 60, 0])
   })
+
+  it('keeps an empty alert list, meaning silent', () => {
+    expect(oneOff({ alertOffsets: [] }).alertOffsets).toEqual([])
+  })
 })
 
 describe('completing', () => {
@@ -127,6 +131,14 @@ describe('updateReminder', () => {
     const moved = updateReminder(everyMonday9(), { dueAt: at(2026, 9, 21, 10) }, NOW)
     expect(moved.rrule).toBe('DTSTART:20260921T100000\nRRULE:FREQ=WEEKLY;BYDAY=MO')
     expect(show(completeReminder(moved, at(2026, 9, 21, 11)).dueAt)).toBe(show(at(2026, 9, 28, 10)))
+  })
+
+  it('leaves the series alone for edits that are not about timing', () => {
+    const rrule = buildRecurrence({ freq: 'daily', count: 3 }, at(2026, 9, 14, 9))
+    const r = completeReminder(createReminder({ title: 'Meds', dueAt: at(2026, 9, 14, 9), rrule }, ctx), at(2026, 9, 14, 9, 30))
+    const renamed = updateReminder(r, { title: 'Take meds', priority: 'high' }, NOW)
+    expect(renamed.rrule).toBe(rrule)
+    expect(renamed.dueAt).toBe(at(2026, 9, 15, 9))
   })
 
   it('sets and clears the repeat pattern', () => {

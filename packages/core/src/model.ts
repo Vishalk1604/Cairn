@@ -48,7 +48,7 @@ export interface Reminder extends Entity {
   snoozedUntil?: number
   /** When it was last completed. For recurring reminders, the last completed occurrence. */
   completedAt?: number
-  /** Minutes before dueAt to alert. Absent means a single alert at dueAt. */
+  /** Minutes before dueAt to alert. Absent means a single alert at dueAt; empty means silent. */
   alertOffsets?: number[]
   tags: string[]
   courseId?: string
