@@ -113,11 +113,24 @@ async function post(
   const form = Object.entries(body)
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')
-  const response = await doFetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: form,
-  })
+  let response: Awaited<ReturnType<Fetch>>
+  try {
+    response = await doFetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form,
+    })
+  } catch (cause) {
+    // The request never left. Usually no network — or, inside an app with a
+    // content security policy, a host the policy does not allow, which the
+    // browser reports as nothing more helpful than "failed to fetch".
+    throw new TokenError(
+      `Could not reach Google to complete sign-in (${cause instanceof Error ? cause.message : String(cause)}). ` +
+        'Check the connection, and that the app is allowed to reach oauth2.googleapis.com.',
+      'unreachable',
+      false,
+    )
+  }
 
   let payload: TokenResponse
   try {

@@ -257,3 +257,17 @@ describe('token state', () => {
     expect(hasScopes(tokens, [])).toBe(true)
   })
 })
+
+describe('when the request never leaves', () => {
+  it('explains a blocked or offline request instead of passing on "failed to fetch"', async () => {
+    const doFetch = vi.fn<Fetch>().mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(refreshTokens({ clientId: CLIENT, refreshToken: 'r' }, { fetch: doFetch })).rejects.toMatchObject({
+      name: 'TokenError',
+      code: 'unreachable',
+      needsReconsent: false,
+    })
+    await expect(refreshTokens({ clientId: CLIENT, refreshToken: 'r' }, { fetch: doFetch })).rejects.toThrow(
+      /oauth2\.googleapis\.com/,
+    )
+  })
+})

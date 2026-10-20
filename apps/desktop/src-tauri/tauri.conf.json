@@ -24,12 +24,14 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost https://lh3.googleusercontent.com; connect-src 'self' https://oauth2.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.googleapis.com https://gmail.googleapis.com https://classroom.googleapis.com https://generativelanguage.googleapis.com"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
