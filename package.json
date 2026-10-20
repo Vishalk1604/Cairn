@@ -11,10 +11,14 @@
     "dev:desktop": "pnpm --filter @cairn/desktop dev",
     "dev:mobile": "pnpm --filter @cairn/mobile start",
     "test": "turbo run test",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-cairn \"vitest run --config vitest.rules.config.ts\"",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase-tools": "^15.34.0",
     "turbo": "^2.10.12",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.0"
   }
 }
