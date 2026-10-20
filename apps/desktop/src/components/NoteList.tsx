@@ -1,5 +1,6 @@
 import type { Note } from '@cairn/core'
 import type { NoteQuery } from '@cairn/sync'
+import { noteTimestamp } from '@cairn/ui'
 import { useMemo, useState } from 'react'
 import { useActions } from '../app/actions'
 import { useCairn } from '../app/context'
@@ -8,7 +9,20 @@ import { useObserved } from '../app/hooks'
 const ALL: NoteQuery = {}
 
 export function noteHeading(n: Pick<Note, 'title' | 'body'>): string {
-  return n.title || n.body?.trim().split('\n')[0] || 'Untitled'
+  return n.title || firstLines(n.body)[0] || 'Untitled'
+}
+
+/** The line shown under the heading, skipping whatever the heading already used. */
+function notePreview(n: Pick<Note, 'title' | 'body'>): string {
+  const lines = firstLines(n.body)
+  return (n.title ? lines[0] : lines[1]) ?? ''
+}
+
+function firstLines(body: string | undefined): string[] {
+  return (body ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
 }
 
 export function NoteList({ onOpen }: { onOpen: (note: Note) => void }) {
@@ -35,30 +49,38 @@ export function NoteList({ onOpen }: { onOpen: (note: Note) => void }) {
         aria-label="Search notes"
       />
       {shown.length === 0 ? (
-        <p className="empty">{all.length === 0 ? 'No notes yet. Anything you type above without a date becomes a note.' : 'No notes match.'}</p>
+        <p className="empty">
+          {all.length === 0 ? 'No notes yet. Anything you type above without a date becomes a note.' : 'No notes match.'}
+        </p>
       ) : (
         <ul className="rows">
           {shown.map((n) => (
-            <li key={n.id} className="row note-row">
-              <div className="row-main">
-                <button type="button" className="row-title" onClick={() => onOpen(n)}>
-                  {n.pinned && <span aria-label="Pinned">📌 </span>}
+            <li key={n.id} className="note-card">
+              <button type="button" className="note-open" onClick={() => onOpen(n)}>
+                <span className="note-card-title">
+                  {n.pinned && <span aria-label="Pinned">★ </span>}
                   {noteHeading(n)}
-                </button>
-                <div className="row-meta">
-                  {n.title && n.body && <span className="snippet">{n.body.trim().split('\n')[0]}</span>}
+                </span>
+                {notePreview(n) && <span className="note-card-preview">{notePreview(n)}</span>}
+                <span className="note-card-meta">
+                  {noteTimestamp(n.updatedAt)}
                   {n.tags.map((tag) => (
                     <span key={tag} className="tag">
                       #{tag}
                     </span>
                   ))}
-                </div>
-              </div>
-              <div className="row-actions">
-                <button type="button" aria-pressed={n.pinned} onClick={() => void actions.togglePin(n)}>
+                </span>
+              </button>
+              <div className="note-card-actions">
+                <button type="button" className="quiet" aria-pressed={n.pinned} onClick={() => void actions.togglePin(n)}>
                   {n.pinned ? 'Unpin' : 'Pin'}
                 </button>
-                <button type="button" aria-label={`Delete ${noteHeading(n)}`} onClick={() => void actions.removeNote(n)}>
+                <button
+                  type="button"
+                  className="quiet"
+                  aria-label={`Delete ${noteHeading(n)}`}
+                  onClick={() => void actions.removeNote(n)}
+                >
                   Delete
                 </button>
               </div>

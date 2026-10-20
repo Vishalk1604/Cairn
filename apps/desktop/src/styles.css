@@ -307,3 +307,182 @@ fieldset {
   color: inherit;
   font-weight: 600;
 }
+
+/* Note editor: a writing surface, not a form. Chrome stays out of the way
+   so the page is mostly the note itself. */
+
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.note-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px;
+  flex: none;
+}
+
+.icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.icon:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.icon:disabled {
+  opacity: 0.3;
+}
+
+.note-sheet {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  /* Long lines are tiring to read; the sheet stays a comfortable measure
+     however wide the window is. */
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 4px 24px 16px;
+}
+
+.note-title,
+.note-body,
+.note-tags {
+  border: 0;
+  background: none;
+  padding: 0;
+  width: 100%;
+  font: inherit;
+  color: var(--fg);
+}
+
+.note-title:focus,
+.note-body:focus,
+.note-tags:focus {
+  outline: none;
+}
+
+.note-title {
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.note-title::placeholder,
+.note-body::placeholder {
+  color: color-mix(in srgb, var(--fg) 34%, transparent);
+}
+
+.note-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.note-status {
+  margin-left: auto;
+}
+
+.note-body {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.note-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  flex: none;
+}
+
+.note-tags {
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.quiet {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.quiet:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+/* Notes list: cards that show enough of a note to recognise it. */
+
+.note-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+}
+
+.note-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+}
+
+.note-card-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-card-preview {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-card-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.note-card-actions {
+  display: flex;
+  gap: 10px;
+  flex: none;
+}

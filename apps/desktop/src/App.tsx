@@ -72,6 +72,10 @@ export function App() {
     { id: 'done', label: 'Done' },
   ]
 
+  if (editing?.kind === 'note') {
+    return <NoteEditor key={editing.note?.id ?? 'new'} note={editing.note} onClose={() => setEditing(null)} />
+  }
+
   return (
     <div className="app">
       <header className="top">
@@ -113,7 +117,6 @@ export function App() {
       {editing?.kind === 'reminder' && (
         <ReminderEditor key={editing.reminder?.id ?? 'new'} reminder={editing.reminder} now={now} onClose={() => setEditing(null)} />
       )}
-      {editing?.kind === 'note' && <NoteEditor key={editing.note?.id ?? 'new'} note={editing.note} onClose={() => setEditing(null)} />}
     </div>
   )
 }

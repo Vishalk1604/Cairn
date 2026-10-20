@@ -6,4 +6,6 @@ export const colors = {
   line: '#dedede',
   surface: '#ffffff',
   danger: '#d93025',
+  /** Placeholder text: present, but clearly not content. */
+  faint: '#8a8a8a',
 }

@@ -1,5 +1,7 @@
 export * from './actions'
 export * from './format'
+export * from './noteHistory'
+export * from './noteMeta'
 export * from './noteSaveQueue'
 export * from './notifications'
 export * from './reminderDraft'
