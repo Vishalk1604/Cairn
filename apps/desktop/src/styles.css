@@ -50,19 +50,65 @@ select {
   padding: 16px;
 }
 
-.capture-row {
-  display: flex;
-  gap: 8px;
+/* The composer: a title line and a body, which is where most things get
+   written. It stays put at the top rather than opening a screen of its own. */
+
+.capture {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 10px 12px;
 }
 
-.capture-row input {
-  flex: 1;
-  padding: 10px;
+.capture:focus-within {
+  border-color: color-mix(in srgb, var(--fg) 35%, var(--line));
+}
+
+.capture-title,
+.capture-body {
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--fg);
+  font: inherit;
+}
+
+.capture-title:focus,
+.capture-body:focus {
+  outline: none;
+}
+
+.capture-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.capture-body {
+  margin-top: 6px;
+  resize: vertical;
+  min-height: 3.6em;
+  line-height: 1.55;
+}
+
+.capture-title::placeholder,
+.capture-body::placeholder {
+  color: color-mix(in srgb, var(--fg) 38%, transparent);
+  font-weight: 400;
+}
+
+.capture-foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 .capture-preview {
+  flex: 1;
   min-height: 1.5em;
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--muted);
 }
 

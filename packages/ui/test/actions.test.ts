@@ -24,7 +24,7 @@ const clean = (s: string) => s.replace(/ /g, ' ')
 describe('capture', () => {
   it('creates a reminder from natural language, with undo', async () => {
     const { reminders, actions, lastToast, undo } = await setup()
-    const parsed = await actions.capture('submit DBMS assignment friday 6pm #dbms')
+    const parsed = await actions.capture({ title: 'submit DBMS assignment friday 6pm #dbms' })
     expect(parsed?.kind).toBe('reminder')
 
     const [r] = await reminders.list()
@@ -37,8 +37,8 @@ describe('capture', () => {
 
   it('saves a note when there is no date, or when asked to keep the text as-is', async () => {
     const { reminders, notes, actions } = await setup()
-    await actions.capture('buy graph paper #stationery')
-    await actions.capture('call mom at 5', true)
+    await actions.capture({ title: 'buy graph paper #stationery' })
+    await actions.capture({ title: 'call mom at 5' }, true)
     expect(await reminders.list()).toEqual([])
     expect((await notes.list()).map((n) => [n.title, n.tags])).toEqual([
       ['buy graph paper', ['stationery']],
@@ -96,5 +96,55 @@ describe('note actions', () => {
     expect(await notes.list()).toEqual([])
     await undo()
     expect(await notes.list()).toHaveLength(1)
+  })
+})
+
+describe('capture with a body', () => {
+  it('keeps the body as a note the reminder points at', async () => {
+    const { reminders, notes, actions, lastToast } = await setup()
+    await actions.capture({ title: 'submit DBMS assignment friday 6pm', body: 'Use the template from last week.' })
+
+    const [r] = await reminders.list()
+    const [n] = await notes.list()
+    expect(r?.noteId).toBe(n?.id)
+    expect(n).toMatchObject({ title: 'submit DBMS assignment', body: 'Use the template from last week.' })
+    expect(lastToast().message).toContain('with your note')
+  })
+
+  it('undo takes back both the reminder and its note', async () => {
+    const { reminders, notes, actions, undo } = await setup()
+    await actions.capture({ title: 'lab report tomorrow', body: 'Graphs on page 3.' })
+    await undo()
+    expect(await reminders.list()).toEqual([])
+    expect(await notes.list()).toEqual([])
+  })
+
+  it('saves a titled note with its body when there is no date', async () => {
+    const { reminders, notes, actions } = await setup()
+    await actions.capture({ title: 'Hackathon ideas', body: 'Campus transit tracker.' })
+    expect(await reminders.list()).toEqual([])
+    expect((await notes.list())[0]).toMatchObject({ title: 'Hackathon ideas', body: 'Campus transit tracker.' })
+  })
+
+  it('accepts a body with no title at all', async () => {
+    const { notes, actions, lastToast } = await setup()
+    await actions.capture({ title: '', body: 'Just a thought.\nAnd another.' })
+    expect((await notes.list())[0]).toMatchObject({ title: '', body: 'Just a thought.\nAnd another.' })
+    expect(lastToast().message).toContain('Just a thought.')
+  })
+
+  it('does nothing when both fields are empty', async () => {
+    const { reminders, notes, actions, toasts } = await setup()
+    await actions.capture({ title: '   ', body: '  ' })
+    expect(await reminders.list()).toEqual([])
+    expect(await notes.list()).toEqual([])
+    expect(toasts).toEqual([])
+  })
+
+  it('literal mode keeps a dated title as a plain note, body and all', async () => {
+    const { reminders, notes, actions } = await setup()
+    await actions.capture({ title: 'call mom at 5', body: 'about the trip' }, true)
+    expect(await reminders.list()).toEqual([])
+    expect((await notes.list())[0]).toMatchObject({ title: 'call mom at 5', body: 'about the trip' })
   })
 })

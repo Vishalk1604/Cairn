@@ -31,6 +31,17 @@ export interface Toast {
   tone?: 'info' | 'error'
 }
 
+/** What the composer collected: a title line, and anything written under it. */
+export interface CaptureInput {
+  title: string
+  body?: string
+}
+
+/** Something to call a note by in a message, when it has no title of its own. */
+function noteName(title: string, body: string | undefined): string {
+  return title || (body ?? '').trim().split('\n')[0] || 'Untitled'
+}
+
 export interface ActionDeps {
   reminders: ReminderRepository
   notes: NoteRepository
@@ -76,30 +87,59 @@ export function createActions({ reminders, notes, userId, toast, now = Date.now,
     })
 
   return {
-    /** Quick capture. With `literal`, the text is saved as a note without being interpreted. */
-    capture: (text: string, literal = false) =>
+    /**
+     * The one way in. The title line is read for a date, a repeat, tags and
+     * priority; the body is whatever else you wrote. A title with a date
+     * becomes a reminder, anything else becomes a note, and a dated title
+     * with a body becomes both, linked, so the detail is there when the
+     * reminder goes off. With `literal`, nothing is interpreted.
+     */
+    capture: (input: CaptureInput, literal = false) =>
       run(async (): Promise<CaptureResult | null> => {
-        if (literal) {
-          const n = createNote({ title: text }, ctx())
+        const title = input.title.trim()
+        const body = input.body?.trim() ? input.body : undefined
+        if (!title && !body) return null
+
+        if (literal || !title) {
+          const n = createNote({ title, body }, ctx())
           await notes.upsert(n)
-          toast({ message: `Saved note “${n.title}”`, action: { label: 'Undo', run: () => void notes.remove(n.id, now()) } })
+          toast({ message: `Saved note “${noteName(n.title, body)}”`, action: { label: 'Undo', run: () => void notes.remove(n.id, now()) } })
           return null
         }
-        const parsed = parseCapture(text, now(), capture)
+
+        const parsed = parseCapture(title, now(), capture)
         if (parsed.kind === 'reminder') {
+          // The body is worth keeping, so it becomes a note the reminder
+          // points at rather than being thrown away with the date.
+          const note = body ? createNote({ title: parsed.title, body, tags: parsed.tags }, ctx()) : undefined
+          if (note) await notes.upsert(note)
           const r = createReminder(
-            { title: parsed.title, dueAt: parsed.dueAt!, allDay: parsed.allDay, rrule: parsed.rrule, priority: parsed.priority, tags: parsed.tags },
+            {
+              title: parsed.title,
+              dueAt: parsed.dueAt!,
+              allDay: parsed.allDay,
+              rrule: parsed.rrule,
+              priority: parsed.priority,
+              tags: parsed.tags,
+              noteId: note?.id,
+            },
             ctx(),
           )
           await reminders.upsert(r)
           toast({
-            message: `Added “${r.title}” for ${when(r.dueAt, r.allDay)}`,
-            action: { label: 'Undo', run: () => void reminders.remove(r.id, now()) },
+            message: `Added “${r.title}” for ${when(r.dueAt, r.allDay)}${note ? ', with your note' : ''}`,
+            action: {
+              label: 'Undo',
+              run: () => {
+                void reminders.remove(r.id, now())
+                if (note) void notes.remove(note.id, now())
+              },
+            },
           })
         } else {
-          const n = createNote({ title: parsed.title, tags: parsed.tags }, ctx())
+          const n = createNote({ title: parsed.title, body, tags: parsed.tags }, ctx())
           await notes.upsert(n)
-          toast({ message: `Saved note “${n.title}”`, action: { label: 'Undo', run: () => void notes.remove(n.id, now()) } })
+          toast({ message: `Saved note “${noteName(n.title, body)}”`, action: { label: 'Undo', run: () => void notes.remove(n.id, now()) } })
         }
         return parsed
       }),

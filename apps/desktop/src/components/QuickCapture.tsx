@@ -1,17 +1,30 @@
 import { describeRecurrence, parseCapture } from '@cairn/core'
 import { formatDue } from '@cairn/ui'
-import { useMemo, useState, type RefObject } from 'react'
+import { useMemo, useRef, useState, type RefObject } from 'react'
 import { useActions } from '../app/actions'
 
+/**
+ * The way most things get into Cairn: a title line and a body under it.
+ * The title is read for a date, a repeat, tags and priority, and Cairn
+ * decides from that whether what you wrote is a reminder, a note, or both.
+ */
 export function QuickCapture({ inputRef }: { inputRef: RefObject<HTMLInputElement | null> }) {
-  const [text, setText] = useState('')
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const actions = useActions()
-  const preview = useMemo(() => (text.trim() ? parseCapture(text, Date.now()) : null), [text])
 
-  const submit = async (literal: boolean) => {
-    if (!text.trim()) return
-    const result = await actions.capture(text, literal)
-    if (result !== undefined) setText('')
+  const preview = useMemo(() => (title.trim() ? parseCapture(title, Date.now()) : null), [title])
+  const empty = !title.trim() && !body.trim()
+
+  const submit = async (literal = false) => {
+    if (empty) return
+    const result = await actions.capture({ title, body }, literal)
+    if (result !== undefined) {
+      setTitle('')
+      setBody('')
+      inputRef.current?.focus()
+    }
   }
 
   return (
@@ -19,49 +32,79 @@ export function QuickCapture({ inputRef }: { inputRef: RefObject<HTMLInputElemen
       className="capture"
       onSubmit={(event) => {
         event.preventDefault()
-        void submit(false)
+        void submit()
       }}
     >
-      <div className="capture-row">
-        <input
-          ref={inputRef}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              void submit(event.altKey)
-            } else if (event.key === 'Escape') {
-              setText('')
-            }
-          }}
-          placeholder="Add a reminder or note, e.g. submit DBMS assignment friday 6pm #dbms"
-          aria-label="Quick capture"
-          aria-describedby="capture-preview"
-          autoFocus
-        />
-        <button type="submit" disabled={!text.trim()}>
+      <input
+        ref={inputRef}
+        className="capture-title"
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+            event.preventDefault()
+            // Alt keeps the text exactly as typed, dates and all.
+            if (event.altKey) void submit(true)
+            // A one-liner is the common case, so Enter files it straight away;
+            // Shift+Enter is for when there is more to say.
+            else if (event.shiftKey) bodyRef.current?.focus()
+            else void submit()
+          } else if (event.key === 'Escape') {
+            setTitle('')
+            setBody('')
+          }
+        }}
+        placeholder="What do you need to remember?"
+        aria-label="Title"
+        aria-describedby="capture-preview"
+        autoFocus
+      />
+
+      <textarea
+        ref={bodyRef}
+        className="capture-body"
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault()
+            void submit()
+          } else if (event.key === 'Escape') {
+            setTitle('')
+            setBody('')
+            inputRef.current?.focus()
+          }
+        }}
+        placeholder="Notes (optional)"
+        aria-label="Notes"
+        rows={3}
+      />
+
+      <div className="capture-foot">
+        <p id="capture-preview" className="capture-preview" aria-live="polite">
+          {preview ? (
+            <>
+              {preview.kind === 'reminder' ? 'Reminder' : 'Note'}: <strong>{preview.title}</strong>
+              {preview.dueAt !== undefined && <> · {formatDue(preview.dueAt, preview.allDay, Date.now())}</>}
+              {preview.rrule && <> · {describeRecurrence(preview.rrule)}</>}
+              {preview.priority !== 'normal' && <> · {preview.priority} priority</>}
+              {preview.tags.map((tag) => (
+                <span key={tag} className="tag">
+                  #{tag}
+                </span>
+              ))}
+              {preview.kind === 'reminder' && body.trim() && <> · with your note</>}
+            </>
+          ) : (
+            <span className="hint">
+              Add a date to make it a reminder · #tag · !high · “quotes” are never read as dates
+            </span>
+          )}
+        </p>
+        <button type="submit" disabled={empty}>
           Add
         </button>
       </div>
-      <p id="capture-preview" className="capture-preview" aria-live="polite">
-        {preview ? (
-          <>
-            {preview.kind === 'reminder' ? 'Reminder' : 'Note'}: <strong>{preview.title}</strong>
-            {preview.dueAt !== undefined && <> · {formatDue(preview.dueAt, preview.allDay, Date.now())}</>}
-            {preview.rrule && <> · {describeRecurrence(preview.rrule)}</>}
-            {preview.priority !== 'normal' && <> · {preview.priority} priority</>}
-            {preview.tags.map((tag) => (
-              <span key={tag} className="tag">
-                #{tag}
-              </span>
-            ))}
-            <span className="hint"> Enter to add · Alt+Enter saves the text as-is</span>
-          </>
-        ) : (
-          <span className="hint">Ctrl+Shift+Space jumps here from anywhere · #tag · !high · “quotes” are never read as dates</span>
-        )}
-      </p>
     </form>
   )
 }

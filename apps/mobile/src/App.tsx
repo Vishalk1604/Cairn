@@ -121,13 +121,10 @@ function Main() {
         {tab === 'done' && <DoneList now={now} />}
       </View>
 
-      {tab !== 'done' && (
-        <Button
-          title={tab === 'notes' ? 'New note' : 'New reminder'}
-          primary
-          style={styles.fab}
-          onPress={() => setEditing(tab === 'notes' ? { kind: 'note' } : { kind: 'reminder' })}
-        />
+      {/* Notes are written in the composer at the top, so only the reminder
+          form — with its date, repeat and alert controls — needs a way in. */}
+      {tab === 'reminders' && (
+        <Button title="New reminder" primary style={styles.fab} onPress={() => setEditing({ kind: 'reminder' })} />
       )}
 
       {editing?.kind === 'reminder' && <ReminderEditor reminder={editing.reminder} now={now} onClose={() => setEditing(null)} />}

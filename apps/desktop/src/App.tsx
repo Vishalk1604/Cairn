@@ -95,7 +95,14 @@ export function App() {
           </button>
         )}
         {tab === 'notes' && (
-          <button type="button" onClick={() => setEditing({ kind: 'note' })}>
+          <button
+            type="button"
+            onClick={() => {
+              // Writing happens in the composer above, not on a screen of its own.
+              captureRef.current?.focus()
+              captureRef.current?.select()
+            }}
+          >
             New note
           </button>
         )}
