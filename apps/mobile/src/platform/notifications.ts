@@ -41,8 +41,20 @@ export async function requestNotificationPermission(): Promise<PermissionState> 
 /**
  * Replaces everything scheduled with the current plan. Alerts fire from the
  * OS alarm manager, so they work with the app closed and no network.
+ *
+ * Reschedules are serialized: each one clears the whole schedule before
+ * writing it again, so two overlapping runs could cancel alarms the other had
+ * just written and leave the device with nothing scheduled.
  */
-export async function scheduleNotifications(reminders: readonly Reminder[], now: number): Promise<void> {
+export function scheduleNotifications(reminders: readonly Reminder[], now: number): Promise<void> {
+  const run = () => reschedule(reminders, now)
+  rescheduling = rescheduling.then(run, run)
+  return rescheduling
+}
+
+let rescheduling: Promise<void> = Promise.resolve()
+
+async function reschedule(reminders: readonly Reminder[], now: number): Promise<void> {
   if (!notificationsSupported || (await notificationPermission()) !== 'granted') return
   const plan = planNotifications(reminders, now)
   await Notifications.cancelAllScheduledNotificationsAsync()

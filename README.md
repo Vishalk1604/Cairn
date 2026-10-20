@@ -112,7 +112,12 @@ Building the Windows app additionally needs Rust (stable, MSVC toolchain) and th
 ```sh
 pnpm --filter @cairn/desktop app          # run the real desktop app
 pnpm --filter @cairn/desktop app:build    # installer in src-tauri/target/release/bundle
+
+pnpm --filter @cairn/mobile prebuild      # generate the native android/ project
+pnpm --filter @cairn/mobile android       # build and install on a connected device
 ```
+
+The `android/` folder is generated from `app.json` and is not in the repository: change the config, not the generated files.
 
 Both apps are written once and hosted twice. The desktop UI talks to a small platform interface (storage, notifications, the global hotkey, the tray); a browser implementation makes the whole app runnable and testable in any browser, and the Tauri implementation supplies the real thing. The Android app can also be opened in a browser (`pnpm --filter @cairn/mobile web`) for quick checks, though its notifications need a device build.
 
@@ -121,6 +126,8 @@ Things worth knowing about the desktop app:
 - Closing the window hides Cairn in the notification area so reminders keep firing. **Quit** in the tray menu is what actually exits.
 - The tray icon is drawn in Rust and takes the colour of your most urgent reminder. Its colours are checked against the shared design tokens by a test, so they cannot drift.
 - `Ctrl+Shift+Space` jumps to the capture box from anywhere. If another app already owns that combination, Cairn says so and the tray menu still works.
+
+On Android, reminders are handed to the system alarm clock ahead of time, so they fire with the app closed and no network. Cairn asks for exact alarms, because without them Android is free to delay a reminder by several minutes while the phone is dozing. It deliberately does not ask for storage or screen-overlay access, which React Native would otherwise request by default.
 
 Date tests run in `America/New_York` so daylight-saving transitions are always exercised.
 

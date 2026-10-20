@@ -5,7 +5,8 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
+    "prebuild": "expo prebuild --platform android",
+    "android": "expo run:android",
     "web": "expo start --web --port 8081",
     "bundle:android": "expo export --platform android --output-dir dist/android",
     "typecheck": "tsc -p tsconfig.json"
