@@ -1,6 +1,7 @@
-import { urgencyOf, type Note, type Reminder } from '@cairn/core'
+import { buildTodaySummary, urgencyOf, type Note, type Reminder } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
-import { useEffect, useRef, useState } from 'react'
+import { describeWorkload } from '@cairn/ui'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCairn } from './app/context'
 import { useNow, useObserved } from './app/hooks'
 import { useAlertScheduler } from './app/useAlertScheduler'
@@ -29,8 +30,10 @@ export function App() {
     let unregister: (() => void) | undefined
     let cancelled = false
     void platform
-      .registerQuickCapture(() => {
-        void platform.showWindow()
+      .registerQuickCapture(async () => {
+        // The window may be hidden in the tray, so raise it before focusing:
+        // an input in a hidden window cannot take the caret.
+        await platform.showWindow()
         setEditing(null)
         captureRef.current?.focus()
         captureRef.current?.select()
@@ -41,6 +44,20 @@ export function App() {
       unregister?.()
     }
   }, [platform])
+
+  // The tray shows the most urgent thing pending, so a glance at the taskbar
+  // is enough even with the window closed. Reduced to a level and a string
+  // first, so the clock ticking does not cost a call into the host.
+  const tray = useMemo(() => {
+    const summary = buildTodaySummary(active, now)
+    return { worst: summary.worst, tooltip: `Cairn — ${describeWorkload(summary)}` }
+  }, [active, now])
+
+  useEffect(() => {
+    platform.setTrayState(tray.worst, tray.tooltip).catch((error: unknown) => {
+      console.error('Could not update the tray', error)
+    })
+  }, [platform, tray.worst, tray.tooltip])
 
   useAlertScheduler(active, (id) => {
     const reminder = active.find((r) => r.id === id)

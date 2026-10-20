@@ -5,5 +5,11 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
-  server: { port: 1420, strictPort: true },
+  server: {
+    port: 1420,
+    strictPort: true,
+    // Rust build output lives inside this package; watching it makes the dev
+    // server crash with EBUSY the moment cargo rewrites the binary.
+    watch: { ignored: ['**/src-tauri/**'] },
+  },
 })

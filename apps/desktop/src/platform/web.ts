@@ -48,4 +48,8 @@ export const webPlatform: Platform = {
   async showWindow() {
     window.focus()
   },
+
+  async setTrayState() {
+    // No tray in a browser; the tab title already carries the count.
+  },
 }

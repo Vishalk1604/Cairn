@@ -1,3 +1,4 @@
+import type { UrgencyLevel } from '@cairn/core'
 import type { KeyValueStore } from '@cairn/sync'
 
 export type PermissionState = 'granted' | 'denied' | 'default'
@@ -24,4 +25,6 @@ export interface Platform {
   /** Ctrl+Shift+Space. System-wide under Tauri; in a browser only while the page has focus. */
   registerQuickCapture(onTrigger: () => void): Promise<() => void>
   showWindow(): Promise<void>
+  /** Shows the most urgent pending reminder in the tray. No-op without one. */
+  setTrayState(level: UrgencyLevel | null, tooltip: string): Promise<void>
 }
