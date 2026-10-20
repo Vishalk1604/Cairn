@@ -2,7 +2,7 @@ import { tauriPlatform } from './tauri'
 import type { Platform } from './types'
 import { webPlatform } from './web'
 
-export type { AppNotification, PermissionState, Platform } from './types'
+export type { AppNotification, PermissionState, Platform, SecretStore } from './types'
 
 /** Tauri injects this before any app code runs. */
 const inTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window

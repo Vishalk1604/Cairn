@@ -3,6 +3,8 @@
 
 mod focus;
 mod icon;
+mod oauth;
+mod secrets;
 mod tray;
 mod urgency;
 
@@ -65,7 +67,17 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec![AUTOSTART_FLAG]),
         ))
-        .invoke_handler(tauri::generate_handler![show_window, tray::set_tray_state])
+        .manage(oauth::Listener::default())
+        .invoke_handler(tauri::generate_handler![
+            show_window,
+            tray::set_tray_state,
+            oauth::oauth_listen,
+            oauth::oauth_await,
+            oauth::oauth_cancel,
+            secrets::secret_set,
+            secrets::secret_get,
+            secrets::secret_delete,
+        ])
         .setup(|app| {
             tray::create(app.handle())?;
             if let Err(error) = app.global_shortcut().register(quick_capture_shortcut()) {

@@ -1,30 +1,23 @@
-import { openLocalRepositories, type NoteRepository, type ReminderRepository } from '@cairn/sync'
+import type { NoteRepository, ReminderRepository } from '@cairn/sync'
 import { createContext, useContext } from 'react'
 import type { Platform } from '../platform'
-
-/** Until Google sign-in lands, everything belongs to this device's local user. */
-export const LOCAL_USER = 'local'
+import type { AuthState } from './CairnProvider'
 
 export interface Cairn {
   platform: Platform
+  /** `local` until an account is connected, then the Firebase uid. */
   userId: string
   reminders: ReminderRepository
   notes: NoteRepository
-}
-
-export async function openCairn(platform: Platform): Promise<Cairn> {
-  const { reminders, notes } = await openLocalRepositories(platform.storage, {
-    onError: (error) => console.error('Saved data could not be read; it was backed up and Cairn started fresh.', error),
-  })
-  const now = Date.now()
-  await Promise.all([reminders.purgeTombstones(now), notes.purgeTombstones(now)])
-  return { platform, userId: LOCAL_USER, reminders, notes }
+  auth: AuthState
+  signIn(): Promise<void>
+  signOut(): Promise<void>
 }
 
 export const CairnContext = createContext<Cairn | null>(null)
 
 export function useCairn(): Cairn {
   const cairn = useContext(CairnContext)
-  if (!cairn) throw new Error('useCairn needs a CairnContext provider')
+  if (!cairn) throw new Error('useCairn needs a CairnProvider')
   return cairn
 }

@@ -1,4 +1,5 @@
 export * from './firebaseApp'
+export * from './firebaseAuth'
 export * from './firestore'
 export * from './googleAuthConfig'
 export * from './local'

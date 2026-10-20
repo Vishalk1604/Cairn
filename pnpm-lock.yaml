@@ -26,6 +26,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@cairn/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@cairn/core':
         specifier: workspace:*
         version: link:../../packages/core

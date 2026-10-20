@@ -9,6 +9,7 @@ import {
   type CollectionReference,
   type Firestore,
 } from 'firebase/firestore'
+import { cairnFirestore } from './firebaseApp'
 import {
   matchesNoteQuery,
   matchesReminderQuery,
@@ -220,9 +221,9 @@ export interface SyncedRepositories {
 
 /** Opens both synced collections for a signed-in user. */
 export async function openSyncedRepositories(
-  db: Firestore,
   userId: string,
   onError?: (error: unknown) => void,
+  db: Firestore = cairnFirestore(),
 ): Promise<SyncedRepositories> {
   const reminders = new FirestoreRepository<Reminder, ReminderQuery>({
     db,

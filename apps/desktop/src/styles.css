@@ -532,3 +532,50 @@ fieldset {
   gap: 10px;
   flex: none;
 }
+
+/* Account bar: says plainly whether anything is leaving this machine. */
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.account-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.account-dot.synced {
+  background: #188038;
+}
+
+.account-who {
+  color: var(--muted);
+}
+
+.account-who strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.account .badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.error-text {
+  color: #d93025;
+}

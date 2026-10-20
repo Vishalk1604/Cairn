@@ -85,4 +85,24 @@ export const tauriPlatform: Platform = {
   async setTrayState(level: UrgencyLevel | null, tooltip: string) {
     await invoke('set_tray_state', { level, tooltip })
   },
+
+  // Encrypted with DPAPI by the shell, so the token is tied to this Windows
+  // account rather than sitting in a file any process could read.
+  secrets: {
+    get: (key) => invoke<string | null>('secret_get', { key }),
+    set: (key, value) => invoke('secret_set', { key, value }),
+    delete: (key) => invoke('secret_delete', { key }),
+  },
+
+  async authorize(buildUrl) {
+    // The shell opens a loopback port first, because the redirect address
+    // has to name the port Google will be sent back to.
+    const port = await invoke<number>('oauth_listen')
+    try {
+      return await invoke<string>('oauth_await', { authorizeUrl: buildUrl(`http://127.0.0.1:${port}`) })
+    } catch (error) {
+      await invoke('oauth_cancel').catch(() => {})
+      throw error
+    }
+  },
 }

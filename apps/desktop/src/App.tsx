@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCairn } from './app/context'
 import { useNow, useObserved } from './app/hooks'
 import { useAlertScheduler } from './app/useAlertScheduler'
+import { AccountBar } from './components/AccountBar'
 import { DoneList } from './components/DoneList'
 import { NoteEditor } from './components/NoteEditor'
 import { NoteList } from './components/NoteList'
@@ -81,6 +82,7 @@ export function App() {
       <header className="top">
         <QuickCapture inputRef={captureRef} />
       </header>
+      <AccountBar />
       <NotificationBanner />
       <nav className="tabs" role="tablist" aria-label="Views">
         {tabs.map((t) => (

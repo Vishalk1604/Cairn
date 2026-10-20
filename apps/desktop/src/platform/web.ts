@@ -52,4 +52,23 @@ export const webPlatform: Platform = {
   async setTrayState() {
     // No tray in a browser; the tab title already carries the count.
   },
+
+  // Browser storage is readable by anything with the page open, which is no
+  // place for a refresh token. Development in a browser therefore runs
+  // signed out, and everything that does not need an account still works.
+  secrets: {
+    async get() {
+      return null
+    },
+    async set() {
+      throw new Error('Signing in needs the Cairn desktop app')
+    },
+    async delete() {
+      // Nothing was ever stored.
+    },
+  },
+
+  async authorize() {
+    throw new Error('Signing in needs the Cairn desktop app, which can listen for Google’s reply')
+  },
 }
