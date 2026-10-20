@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy — Cairn</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="back"><a href="/">← Cairn</a></p>
+      <h1>Privacy</h1>
+      <p class="lead">
+        Cairn is a personal project with one user: its author. This page describes exactly what the app touches and
+        where it goes, in plain language.
+      </p>
+
+      <section>
+        <h2>The short version</h2>
+        <ul>
+          <li>Your notes and reminders are stored in <strong>your own Google Cloud Firestore</strong> database.</li>
+          <li>Images and recordings are stored in <strong>your own Google Drive</strong>.</li>
+          <li>Your email is read <strong>on your own device</strong> and is never sent to any server the developer runs.</li>
+          <li>The developer operates <strong>no server</strong> and has no copy of your data.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>What Cairn reads, and why</h2>
+        <dl>
+          <dt>Your name, email address and profile picture</dt>
+          <dd>To sign you in and to label which account is connected.</dd>
+
+          <dt>Gmail (read-only)</dt>
+          <dd>
+            To find deadlines — assignment due dates in Google Classroom notification emails, and dates mentioned by
+            teachers. Message content is read on your device. Only the result, such as “a reminder due Friday”, is
+            saved. Message bodies are never stored and never transmitted to the developer.
+          </dd>
+
+          <dt>Google Classroom (read-only)</dt>
+          <dd>
+            To read your course list, assignments and their due dates, announcements, and whether you have submitted
+            an assignment — so a reminder can tick itself off when you hand work in.
+          </dd>
+
+          <dt>Google Drive (files created by Cairn only)</dt>
+          <dd>
+            To store images and audio you attach to a note. Cairn uses the <code>drive.file</code> scope, which means
+            it can only see files it created itself. It cannot read the rest of your Drive.
+          </dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Where your data lives</h2>
+        <p>
+          Notes, reminders and their metadata are stored in Cloud Firestore, in a Google Cloud project belonging to
+          the user. Attachments are stored in the signed-in user's own Google Drive and count against that account's
+          storage. Access is restricted by security rules so that a signed-in account can read and write only its own
+          data.
+        </p>
+        <p>
+          If you connect more than one Google account — for example a personal account and a university account —
+          only the first is used to store data. Any additional account is used solely to read its own Gmail and
+          Classroom, and nothing is written to it.
+        </p>
+      </section>
+
+      <section>
+        <h2>Automatic sorting of email</h2>
+        <p>
+          Cairn can sort incoming mail into important and unimportant. Most of this is decided on your device by
+          fixed rules, with no third party involved.
+        </p>
+        <p>
+          <strong>If, and only if, you supply your own Google Gemini API key</strong>, mail that the rules cannot
+          classify is sent to Google's Gemini API for scoring. What is sent is the sender, subject line, a short
+          snippet and the date — not the full message. This is a choice you make: the feature is off until you add a
+          key, and Cairn works without one. Your use of that API is governed by Google's terms for it.
+        </p>
+      </section>
+
+      <section>
+        <h2>What is not collected</h2>
+        <ul>
+          <li>No analytics, telemetry or usage tracking.</li>
+          <li>No advertising, and no sharing or selling of data to anyone.</li>
+          <li>No account on any service operated by the developer, because there isn't one.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Removing access</h2>
+        <p>
+          You can disconnect any account from inside Cairn, which deletes the stored credentials for it. You can also
+          revoke Cairn's access at any time at
+          <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>, which works whether
+          or not the app is installed. Deleting the Firestore database removes stored notes and reminders; deleting
+          the files from your Drive removes attachments.
+        </p>
+      </section>
+
+      <section>
+        <h2>Limited Use</h2>
+        <p>
+          Cairn's use of information received from Google APIs adheres to the
+          <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+          including the Limited Use requirements.
+        </p>
+      </section>
+
+      <section>
+        <h2>Contact</h2>
+        <p>Questions about this policy: <a href="mailto:vishalkarun0205@gmail.com">vishalkarun0205@gmail.com</a>.</p>
+      </section>
+
+      <footer>
+        <a href="/">Cairn</a>
+        <a href="/terms">Terms</a>
+        <span>Last updated 21 October 2026</span>
+      </footer>
+    </main>
+  </body>
+</html>
