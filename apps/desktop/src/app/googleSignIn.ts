@@ -17,6 +17,23 @@ import type { Platform, SecretStore } from '../platform'
 /** Where the owner account's refresh token lives, under DPAPI. */
 const SESSION_KEY = 'google-owner'
 
+/**
+ * Google requires this at the token exchange for a Desktop client, even
+ * alongside PKCE. It is not confidential for an installed app — it ships in
+ * the executable — but it is kept out of the repository and injected at
+ * build time all the same. See .env.example.
+ */
+const CLIENT_SECRET = import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_SECRET
+
+function credentials(): { clientId: string; clientSecret: string } {
+  if (!CLIENT_SECRET) {
+    throw new Error(
+      'This build has no Google client secret. Copy apps/desktop/.env.example to .env.local, fill it in, and rebuild.',
+    )
+  }
+  return { clientId: GOOGLE_CLIENTS.desktop, clientSecret: CLIENT_SECRET }
+}
+
 export interface Session {
   identity: GoogleIdentity
   /** What Google actually granted, which can be less than was asked for. */
@@ -77,12 +94,7 @@ export async function signIn(platform: Platform, extraScopes: readonly string[] 
   })
 
   const code = readRedirect(redirect, state)
-  const tokens = await exchangeCode({
-    clientId: GOOGLE_CLIENTS.desktop,
-    redirectUri,
-    code,
-    verifier: pkce.verifier,
-  })
+  const tokens = await exchangeCode({ ...credentials(), redirectUri, code, verifier: pkce.verifier })
 
   if (!tokens.idToken) throw new Error('Google did not say who signed in')
   if (!tokens.refreshToken) {
@@ -119,7 +131,7 @@ export async function accessToken(platform: Platform, session: Session): Promise
   const held = cache.get(session.identity.sub)
   if (held && !isExpired(held, Date.now())) return held
 
-  const tokens = await refreshTokens({ clientId: GOOGLE_CLIENTS.desktop, refreshToken: session.refreshToken })
+  const tokens = await refreshTokens({ ...credentials(), refreshToken: session.refreshToken })
   cache.set(session.identity.sub, tokens)
   // Google can hand back a different refresh token; storing it keeps the
   // next launch working.
