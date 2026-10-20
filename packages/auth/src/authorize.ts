@@ -17,7 +17,7 @@ export interface AuthorizeRequest {
    * Re-consent returns no refresh token unless the prompt is forced, which
    * is how apps end up unable to refresh after a reinstall.
    */
-  prompt?: 'consent' | 'select_account' | 'none'
+  prompt?: 'consent' | 'select_account' | 'none' | 'select_account consent'
   /** Keeps scopes already granted when asking for one more. */
   includeGrantedScopes?: boolean
   /** Pre-selects an account, for reconnecting a known one. */

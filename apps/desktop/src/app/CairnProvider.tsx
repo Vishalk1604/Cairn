@@ -1,5 +1,5 @@
+import { TokenError } from '@cairn/auth'
 import type { Entity } from '@cairn/core'
-import { TokenError, type GoogleIdentity } from '@cairn/auth'
 import {
   openLocalRepositories,
   openSyncedRepositories,
@@ -11,15 +11,24 @@ import {
 } from '@cairn/sync'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Platform } from '../platform'
+import {
+  accessTokenFor,
+  connect,
+  disconnect,
+  forgetAllAccounts,
+  loadAccounts,
+  owner,
+  type Account,
+  type SourceFeatures,
+} from './accounts'
 import { CairnContext, type Cairn } from './context'
-import { accessToken, forgetCachedTokens, forgetSession, loadSession, signIn as runSignIn, type Session } from './googleSignIn'
 
 export type AuthState =
   | { status: 'loading' }
   /** Signed out. Everything works; nothing leaves this machine. */
   | { status: 'local' }
   | { status: 'connecting' }
-  | { status: 'synced'; account: GoogleIdentity }
+  | { status: 'synced' }
   | { status: 'error'; message: string }
 
 interface Store {
@@ -32,6 +41,7 @@ interface Store {
 export function CairnProvider({ platform, children }: { platform: Platform; children: ReactNode }) {
   const [store, setStore] = useState<Store | null>(null)
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
+  const [accounts, setAccounts] = useState<Account[]>([])
   // Kept so switching to the synced store can carry local work up with it.
   const local = useRef<Store | null>(null)
 
@@ -45,29 +55,36 @@ export function CairnProvider({ platform, children }: { platform: Platform; chil
     return opened
   }, [platform])
 
-  const connect = useCallback(
-    async (session: Session) => {
+  /** Brings up the synced store for whichever account owns the data. */
+  const startSyncing = useCallback(
+    async (all: Account[]) => {
+      const holder = owner(all)
+      if (!holder) {
+        setStore(await openLocal())
+        setAuth({ status: 'local' })
+        return
+      }
       setAuth({ status: 'connecting' })
       try {
-        const tokens = await accessToken(platform, session)
+        const tokens = await accessTokenFor(platform, holder)
         if (!tokens.idToken) throw new Error('Google did not confirm who you are')
         const uid = await signInToFirebase(tokens.idToken)
         const synced = await openSyncedRepositories(uid, (error) => console.error('Sync problem', error))
         await carryLocalWorkUp(platform, uid, local.current, synced)
         setStore({ userId: uid, reminders: synced.reminders, notes: synced.notes, close: synced.close })
-        setAuth({ status: 'synced', account: session.identity })
+        setAuth({ status: 'synced' })
       } catch (error) {
-        // A dead refresh token is the one case where the stored session is
+        // A dead refresh token is the one case where the stored account is
         // worthless; anything else is worth keeping and retrying later.
         if (error instanceof TokenError && error.needsReconsent) {
-          await forgetSession(platform.secrets)
-          forgetCachedTokens()
+          await forgetAllAccounts(platform)
+          setAccounts([])
           setStore(await openLocal())
           setAuth({ status: 'error', message: 'Google signed Cairn out. Sign in again to resume syncing.' })
           return
         }
         setStore(await openLocal())
-        setAuth({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+        setAuth({ status: 'error', message: message(error) })
       }
     },
     [platform, openLocal],
@@ -82,42 +99,88 @@ export function CairnProvider({ platform, children }: { platform: Platform; chil
       if (cancelled) return
       setStore(opened)
 
-      const session = await loadSession(platform.secrets)
+      const saved = await loadAccounts(platform.secrets)
       if (cancelled) return
-      if (session) await connect(session)
+      setAccounts(saved)
+      if (owner(saved)) await startSyncing(saved)
       else setAuth({ status: 'local' })
     })()
     return () => {
       cancelled = true
     }
-  }, [platform, openLocal, connect])
+  }, [platform, openLocal, startSyncing])
 
   const signIn = useCallback(async () => {
     setAuth({ status: 'connecting' })
     try {
-      const { session } = await runSignIn(platform)
-      await connect(session)
+      const all = await connect(platform, { role: 'owner' })
+      setAccounts(all)
+      await startSyncing(all)
     } catch (error) {
-      setAuth({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      setAuth({ status: 'error', message: message(error) })
     }
-  }, [platform, connect])
+  }, [platform, startSyncing])
+
+  /** Adds another Google account to read Gmail and Classroom from. */
+  const connectSource = useCallback(
+    async (features: SourceFeatures) => {
+      const all = await connect(platform, { role: 'source', features })
+      setAccounts(all)
+    },
+    [platform],
+  )
+
+  /** Asks an account already connected for one more permission. */
+  const regrant = useCallback(
+    async (account: Account, features: SourceFeatures) => {
+      const all = await connect(platform, { role: account.role, features, expect: account.identity })
+      setAccounts(all)
+    },
+    [platform],
+  )
+
+  const disconnectSource = useCallback(
+    async (sub: string) => {
+      setAccounts(await disconnect(platform, sub))
+    },
+    [platform],
+  )
 
   const signOut = useCallback(async () => {
     store?.close?.()
-    forgetCachedTokens()
-    await forgetSession(platform.secrets)
+    await forgetAllAccounts(platform)
     await signOutOfFirebase().catch(() => {})
+    setAccounts([])
     setStore(await openLocal())
     setAuth({ status: 'local' })
   }, [platform, store, openLocal])
 
   const value = useMemo<Cairn | null>(
-    () => (store ? { platform, userId: store.userId, reminders: store.reminders, notes: store.notes, auth, signIn, signOut } : null),
-    [platform, store, auth, signIn, signOut],
+    () =>
+      store
+        ? {
+            platform,
+            userId: store.userId,
+            reminders: store.reminders,
+            notes: store.notes,
+            auth,
+            accounts,
+            signIn,
+            signOut,
+            connectSource,
+            regrant,
+            disconnectSource,
+          }
+        : null,
+    [platform, store, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource],
   )
 
   if (!value) return null
   return <CairnContext.Provider value={value}>{children}</CairnContext.Provider>
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
