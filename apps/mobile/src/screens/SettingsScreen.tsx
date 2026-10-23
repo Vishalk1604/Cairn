@@ -15,7 +15,7 @@ import { fadeIn, fadeOut, settle, sheetIn, sheetOut, Tap } from '../ui/motion'
 
 const SITE = 'https://cairn-vishalk.web.app'
 /** Where the key comes from. Any model page there gives the same kind of key. */
-const NVIDIA_PAGE = 'https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash'
+const NVIDIA_PAGE = 'https://build.nvidia.com/openai/gpt-oss-20b'
 
 const FONT_LABEL: Record<FontSize, string> = { small: 'Small', medium: 'Medium', large: 'Large' }
 const SORT_LABEL: Record<SortOrder, string> = { modified: 'By modification date', created: 'By creation date' }
@@ -170,7 +170,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
             <>
               <Row
                 title="On"
-                detail={inbox.ai.error ?? (inbox.ai.model ? `Last sorted by ${inbox.ai.model}` : `Uses ${inbox.ai.preferred ?? 'DeepSeek'} from the next mail that arrives`)}
+                detail={inbox.ai.error ?? (inbox.ai.model ? `Last sorted by ${inbox.ai.model}` : `Uses ${inbox.ai.preferred ?? 'GPT-OSS'} from the next mail that arrives`)}
                 detailTone={inbox.ai.error ? 'danger' : 'muted'}
                 trailing={<Glyph char="✓" color={c.accent} size={20} />}
               />
@@ -180,7 +180,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           ) : (
             <Row
               title="Add an NVIDIA API key"
-              detail="Free from NVIDIA. Paste the code from their DeepSeek page and Cairn finds the key in it."
+              detail="Free from NVIDIA. Paste the code from their GPT-OSS page and Cairn finds the key in it."
               trailing={<Glyph char="+" color={c.accent} size={24} />}
               onPress={() => setKeySheet(true)}
             />
@@ -295,7 +295,11 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
       setChecking(false)
     }
   }
-  const steps = ['Open the DeepSeek page on NVIDIA and sign in.', 'Press “Get API Key”.', 'Copy the Python, Node or Shell code it shows, and paste it below.']
+  const steps = [
+    'Open the GPT-OSS page on NVIDIA and sign in.',
+    'Press “Get API Key”, then copy the key it shows (it starts with nvapi-) or the code shown with your key in it.',
+    'Paste it below.',
+  ]
   return (
     <Animated.View entering={fadeIn} exiting={fadeOut} style={[StyleSheet.absoluteFill, styles.scrim]}>
       <Tap onPress={onClose} scaleTo={1} haptic="none" style={styles.flex} accessibilityLabel="Close">
@@ -318,7 +322,7 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
             setPasted(text)
             setProblem(null)
           }}
-          placeholder="Paste the code here, or just the nvapi- key"
+          placeholder="Paste the nvapi- key, or the Shell code"
           placeholderTextColor={c.faint}
           style={[styles.keyInput, styles.codeInput, { color: c.fg, backgroundColor: c.surfaceHigh }]}
           autoCapitalize="none"
@@ -334,6 +338,9 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
         )}
         {(problem ?? (read && !read.ok ? read.error : null)) && (
           <Text style={{ color: c.danger, marginTop: space.sm }}>{problem ?? (read && !read.ok ? read.error : '')}</Text>
+        )}
+        {checking && (
+          <Text style={{ color: c.muted, marginTop: space.sm }}>Asking NVIDIA. Its free tier can take a minute or two to answer.</Text>
         )}
         <Tap onPress={() => void save()} disabled={checking || !read?.ok} scaleTo={0.96} haptic="medium" style={[styles.keySave, { backgroundColor: c.accent, opacity: read?.ok ? 1 : 0.5 }]}>
           {checking ? <ActivityIndicator color={c.onAccent} /> : <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 16 }}>Check and save</Text>}

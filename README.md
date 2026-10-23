@@ -53,12 +53,12 @@ The Android app can sort your mail with AI: it picks out what matters, files it 
 To turn it on:
 
 1. Sign in to Cairn on your phone with Google, and switch on mail reading in **Settings**.
-2. In **Settings → AI sorting**, tap **Add an NVIDIA API key**, then **Open the NVIDIA page**. It opens the DeepSeek V4.1 Flash page on [build.nvidia.com](https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash).
-3. Sign in to NVIDIA (a free developer account) and press **Get API Key**.
-4. NVIDIA shows sample code in Python, Node and Shell with your key written into it. Copy **any one** of the three, all of it, and paste it into the box in Cairn. A bare key starting with `nvapi-` works too.
-5. Tap **Check and save**. Cairn finds the key and the model in what you pasted, sends one tiny test request, and says which model answered.
+2. In **Settings → AI sorting**, tap **Add an NVIDIA API key**, then **Open the NVIDIA page**. It opens the GPT-OSS 20B page on [build.nvidia.com](https://build.nvidia.com/openai/gpt-oss-20b).
+3. Sign in to NVIDIA (a free developer account) and press **Get API Key**, then **Generate Key**. Copy the key it shows: it starts with `nvapi-`. NVIDIA only shows it once, so keep a copy somewhere safe.
+4. Paste it into the box in Cairn. Sample code from that page works too, as long as your key is written into it. Code that reads the key from a setting called `NVIDIA_API_KEY` has no key in it to find, and Cairn says so.
+5. Tap **Check and save**. Cairn finds the key (and the model, if you pasted code), sends one tiny test request, and says which model answered. On NVIDIA's free tier that answer can take a minute or two to arrive.
 
-The key is kept in the phone's secure storage and is only ever sent to NVIDIA. If DeepSeek is busy, as it often is on NVIDIA's free tier, Cairn falls back to Nemotron 3.5 Lightning on the same key. NVIDIA's free tier allows about 40 requests a minute per key, far more than one person's mail needs. **Remove key** in the same place turns AI sorting off.
+The key is kept in the phone's secure storage and is only ever sent to NVIDIA. Cairn asks OpenAI's GPT-OSS 20B through NVIDIA's Responses API, and falls back to Nemotron 3.5 Lightning on the same key when it is busy. NVIDIA's free tier queues requests, so a reply can take a minute or two; new mail shows in the Inbox straight away and gets its folder and summary when the reply arrives. The free tier allows about 40 requests a minute per key, far more than one person's mail needs. **Remove key** in the same place turns AI sorting off.
 
 ## Tech stack
 
@@ -72,7 +72,7 @@ The key is kept in the phone's secure storage and is only ever sent to NVIDIA. I
 | Auth and sync | Firebase Auth (Google sign-in, PKCE) + Firestore, behind a repository interface |
 | Push | Firebase Cloud Messaging, relayed through a Cloudflare Worker |
 | Server jobs | Cloudflare Workers with cron triggers |
-| AI | NVIDIA's hosted models (DeepSeek V4.1 Flash, Nemotron as a fallback), client-side, each person's own key |
+| AI | OpenAI's GPT-OSS 20B on NVIDIA (Responses API), Nemotron as a fallback; client-side, each person's own key |
 | Dates | `chrono-node`, `rrule` |
 
 ## Repository layout

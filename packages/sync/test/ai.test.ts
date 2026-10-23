@@ -125,10 +125,19 @@ describe('readAiSetup', () => {
     expect(readAiSetup(`  ${KEY}\n`)).toEqual({ ok: true, setup: { key: KEY } })
   })
 
-  it('says to make a key first when the sample still has the placeholder', () => {
-    const result = readAiSetup('api_key = "$NVIDIA_API_KEY"')
-    expect(result.ok).toBe(false)
-    expect(!result.ok && result.error).toMatch(/Get API Key/)
+  it('says where the key is when the sample only names the setting it would be read from', () => {
+    for (const sample of ['api_key = "$NVIDIA_API_KEY"', 'api_key = os.environ["NVIDIA_API_KEY"]', 'apiKey: process.env.NVIDIA_API_KEY']) {
+      const result = readAiSetup(sample)
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toMatch(/Get API Key.*Shell code/)
+    }
+  })
+
+  it('takes the key and the model when both are pasted together', () => {
+    const both = `${KEY}
+model="deepseek-ai/deepseek-v4.1-flash"
+api_key = os.environ["NVIDIA_API_KEY"]`
+    expect(readAiSetup(both)).toEqual({ ok: true, setup: { key: KEY, model: 'deepseek-ai/deepseek-v4.1-flash' } })
   })
 
   it('never takes an address outside nvidia.com', () => {
@@ -159,7 +168,82 @@ describe('modelsFor', () => {
 
   it('sends the key to the pasted address', async () => {
     const fetchFn = vi.fn<AiFetch>(async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'OK' } }] }) }))
-    await chat({ key: 'k', baseUrl: 'https://ai.api.nvidia.com/v1' }, [{ role: 'user', content: 'x' }], { fetchFn, models: [AI_MODELS[0]!] })
+    await chat({ key: 'k', baseUrl: 'https://ai.api.nvidia.com/v1' }, [{ role: 'user', content: 'x' }], { fetchFn, models: [models[0]!] })
     expect(fetchFn.mock.calls[0]![0]).toBe('https://ai.api.nvidia.com/v1/chat/completions')
+  })
+})
+
+describe('the responses format', () => {
+  const gptOss = AI_MODELS[0]!
+
+  it('is how GPT-OSS is asked, with the instructions as a message and short reasoning', async () => {
+    expect(gptOss).toMatchObject({ id: 'openai/gpt-oss-20b', api: 'responses' })
+    const fetchFn = vi.fn<AiFetch>(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        output: [
+          { type: 'reasoning', content: [{ type: 'reasoning_text', text: 'Need to decide importance.' }] },
+          { type: 'message', content: [{ type: 'output_text', text: '{"important": true}' }] },
+        ],
+      }),
+    }))
+    const result = await chat(
+      'k',
+      [
+        { role: 'system', content: 'Reply with JSON' },
+        { role: 'user', content: 'mail' },
+      ],
+      { fetchFn, models: [gptOss] },
+    )
+    // The answer only; the model's reasoning is left out.
+    expect(result.content).toBe('{"important": true}')
+    const [url, init] = fetchFn.mock.calls[0]!
+    expect(url).toBe('https://integrate.api.nvidia.com/v1/responses')
+    const body = JSON.parse(init.body) as Record<string, unknown>
+    expect(body).toMatchObject({
+      model: 'openai/gpt-oss-20b',
+      input: [
+        { role: 'system', content: 'Reply with JSON' },
+        { role: 'user', content: 'mail' },
+      ],
+      reasoning: { effort: 'low' },
+      stream: false,
+    })
+    expect(body.messages).toBeUndefined()
+  })
+
+  it('counts a reply with reasoning but no answer as empty', async () => {
+    const fetchFn: AiFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ output: [{ type: 'reasoning', content: [{ type: 'reasoning_text', text: 'thinking…' }] }] }),
+    })
+    await expect(chat('k', [{ role: 'user', content: 'x' }], { fetchFn, models: [gptOss] })).rejects.toThrow(/empty answer/)
+  })
+
+  it('reads the GPT-OSS sample from NVIDIA, which uses the responses format', () => {
+    const KEY = 'nvapi-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-zz'
+    const python = [
+      'from openai import OpenAI',
+      'client = OpenAI(',
+      '  base_url = "https://integrate.api.nvidia.com/v1",',
+      `  api_key = "${KEY}"`,
+      ')',
+      'response = client.responses.create(',
+      '  model="openai/gpt-oss-20b",',
+      '  input="Which number is larger, 9.11 or 9.8?",',
+      '  max_output_tokens=4096,',
+      '  stream=True',
+      ')',
+    ].join('\n')
+    const read = readAiSetup(python)
+    expect(read).toEqual({ ok: true, setup: { key: KEY, model: 'openai/gpt-oss-20b', api: 'responses' } })
+    expect(read.ok && modelsFor(read.setup)[0]).toBe(gptOss)
+  })
+
+  it('asks a model it does not know in the format its code used', () => {
+    const first = modelsFor({ key: 'k', model: 'openai/gpt-oss-120b', api: 'responses' })[0]!
+    expect(first).toMatchObject({ id: 'openai/gpt-oss-120b', api: 'responses', extra: { reasoning: { effort: 'low' } } })
   })
 })

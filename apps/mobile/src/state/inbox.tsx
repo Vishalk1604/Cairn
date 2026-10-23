@@ -47,8 +47,12 @@ const MIN_GAP_MS = 60 * 1000
 /** After Google says slow down. */
 const BACKOFF_MS = 3 * 60 * 1000
 const KEEP_FOUND = 200
-/** Emails read by the model at once. NVIDIA's free tier counts requests per minute. */
-const AI_AT_ONCE = 2
+/**
+ * Emails read by the model at once. Most of each request is spent waiting in
+ * NVIDIA's queue, so a few at a time finish far sooner than one by one, and
+ * stay well inside the free tier's 40 requests a minute.
+ */
+const AI_AT_ONCE = 4
 
 /** Where reading left off, per account. Absent means "start from now" on the next look. */
 interface Cursor {
@@ -77,7 +81,7 @@ export interface InboxEntry {
 export interface AiStatus {
   /** Whether a key is saved. */
   on: boolean
-  /** The model asked first: the one the pasted code was for, or DeepSeek. */
+  /** The model asked first: the one the pasted code was for, or GPT-OSS. */
   preferred?: string
   /** The model that answered last. */
   model?: string
@@ -309,6 +313,32 @@ export function InboxProvider({ children }: { children: ReactNode }) {
     [senders],
   )
 
+  /**
+   * Adds newly read mail to the list, or updates mail already shown with
+   * what the model made of it. A choice made on an email while the model
+   * was still reading it is kept.
+   */
+  const addFound = useCallback(
+    (entries: InboxEntry[]) => {
+      if (!entries.length) return
+      setFound((current) => {
+        const byId = new Map(entries.map((e) => [e.message.id, e]))
+        const updated = current.map((e) => {
+          const fresh = byId.get(e.message.id)
+          if (!fresh) return e
+          byId.delete(e.message.id)
+          return { ...stored(fresh), marked: e.marked ?? fresh.marked, foundAt: e.foundAt }
+        })
+        const next = [...[...byId.values()].map(stored), ...updated]
+          .sort((a, b) => b.message.receivedAt - a.message.receivedAt)
+          .slice(0, KEEP_FOUND)
+        save(next)
+        return next
+      })
+    },
+    [save],
+  )
+
   const refresh = useCallback(
     async (manual = false) => {
       const now = Date.now()
@@ -368,17 +398,22 @@ export function InboxProvider({ children }: { children: ReactNode }) {
           cursors[sub] = cursor
         }
 
-        if (aiSetup && fresh.length) await sortWithAi(aiSetup, fresh)
+        const ruled = (list: InboxEntry[]) =>
+          list.map((e) => {
+            const rule = senders[senderAddress(e.message.from)]
+            return rule ? { ...e, marked: rule } : e
+          })
+        // What the rules found shows at once: on NVIDIA's free tier the model
+        // can take a minute or two per email, and that is no reason to wait.
+        if (aiSetup && fresh.length) {
+          addFound(ruled(fresh).filter((e) => e.marked || e.reading.kind !== 'other'))
+          await sortWithAi(aiSetup, fresh)
+        }
         // Saved only once the mail is read and sorted, so closing the app midway re-reads it next time.
         await storage.set(CURSORS_KEY, JSON.stringify(cursors))
 
         // Without a model, only what the rules found to be due is worth keeping.
-        const kept = fresh
-          .map((e) => {
-            const rule = senders[senderAddress(e.message.from)]
-            return rule ? { ...e, marked: rule } : e
-          })
-          .filter((e) => e.triage || e.marked || e.reading.kind !== 'other')
+        const kept = ruled(fresh).filter((e) => e.triage || e.marked || e.reading.kind !== 'other')
 
         const addedFromClassroom = await applyClassroom(work, since)
 
@@ -414,16 +449,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        if (kept.length) {
-          setFound((current) => {
-            const seen = new Set(current.map((e) => e.message.id))
-            const next = [...kept.filter((e) => !seen.has(e.message.id)).map(stored), ...current]
-              .sort((a, b) => b.message.receivedAt - a.message.receivedAt)
-              .slice(0, KEEP_FOUND)
-            save(next)
-            return next
-          })
-        }
+        addFound(kept)
         setClassroom(work.filter((i) => !i.submitted && (Date.parse(i.work.creationTime ?? '') || 0) >= (since.get(i.course.id) ?? Infinity)))
         setLastRun(Date.now())
         if (problems.length) setError(problems.join('\n'))
@@ -432,7 +458,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
         setRefreshing(false)
       }
     },
-    [readable, preferences.paused, platform, applyClassroom, reminders, userId, aiSetup, sortWithAi, senders, save],
+    [readable, preferences.paused, platform, applyClassroom, reminders, userId, aiSetup, sortWithAi, senders, addFound],
   )
 
   // Look when reading is switched on, when the app comes forward, and every few minutes while it is open.
