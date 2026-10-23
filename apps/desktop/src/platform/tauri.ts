@@ -1,10 +1,14 @@
 import type { UrgencyLevel } from '@cairn/core'
 import type { KeyValueStore } from '@cairn/sync'
+import type { AppNotification, PermissionState } from '@cairn/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, onAction, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { load, type Store } from '@tauri-apps/plugin-store'
-import type { AppNotification, PermissionState, Platform } from './types'
+import { googleClientId, googleClientSecret } from './googleClient'
+import type { DesktopMedia, DesktopPlatform } from './types'
 
 /** Raised by the shell for the hotkey and the tray menu item. */
 const QUICK_CAPTURE_EVENT = 'cairn://quick-capture'
@@ -44,7 +48,24 @@ function trackClicks(): void {
   })
 }
 
-export const tauriPlatform: Platform = {
+const media: DesktopMedia = {
+  defaultFolder: () => invoke<string>('media_default_dir'),
+  async pickFolder(current) {
+    const picked = await openDialog({ directory: true, defaultPath: current, title: 'Where should Cairn keep photos and recordings?' })
+    return typeof picked === 'string' ? picked : null
+  },
+  list: (folder) => invoke('media_list', { dir: folder }),
+  // The file goes over as raw bytes rather than JSON. The folder and name
+  // ride in headers, which only carry ASCII, hence the encoding.
+  write: (folder, name, bytes) =>
+    invoke('media_write', bytes, { headers: { 'x-dir': encodeURIComponent(folder), 'x-name': encodeURIComponent(name) } }),
+  read: (folder, name) => invoke<ArrayBuffer>('media_read', { dir: folder, name }),
+  remove: (folder, name) => invoke('media_remove', { dir: folder, name }),
+  move: (from, to) => invoke<number>('media_move', { from, to }),
+  open: (folder) => invoke('media_open', { dir: folder }),
+}
+
+export const tauriPlatform: DesktopPlatform = {
   name: 'tauri',
   storage,
 
@@ -93,6 +114,38 @@ export const tauriPlatform: Platform = {
     set: (key, value) => invoke('secret_set', { key, value }),
     delete: (key) => invoke('secret_delete', { key }),
   },
+
+  async setWindowMode(mode) {
+    await invoke(mode === 'full' ? 'window_full' : 'window_widget')
+  },
+
+  async minimizeWindow() {
+    await invoke('window_minimize')
+  },
+
+  async startDrag() {
+    await getCurrentWindow().startDragging()
+  },
+
+  async hideWindow() {
+    await invoke('window_hide')
+  },
+
+  async openLink(url) {
+    await invoke('open_link', { url })
+  },
+
+  // Through the shell rather than the plugin's own calls, so the tick in the
+  // tray menu changes along with it.
+  autostart: {
+    isEnabled: () => invoke<boolean>('autostart_enabled'),
+    set: (enabled) => invoke<boolean>('set_autostart', { enabled }),
+  },
+
+  media,
+
+  googleClientId,
+  googleClientSecret,
 
   async authorize(buildUrl) {
     // The shell opens a loopback port first, because the redirect address

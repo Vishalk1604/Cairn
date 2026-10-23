@@ -2,13 +2,32 @@
   "expo": {
     "name": "Cairn",
     "slug": "cairn",
-    "scheme": "cairn",
-    "version": "0.1.0",
+    "scheme": ["cairn", "io.github.vishalk1604.cairn"],
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "plugins": [
+      "./plugins/withShortNativeBuildPath",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Cairn records voice notes you add to a note. Nothing is recorded unless you tap the microphone."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Cairn adds photos you choose into your notes.",
+          "cameraPermission": "Cairn takes a photo to put into a note."
+        }
+      ],
+      "expo-web-browser",
+      "expo-secure-store"
+    ],
     "android": {
       "package": "io.github.vishalk1604.cairn",
+      "versionCode": 2,
       "permissions": [
         "android.permission.USE_EXACT_ALARM",
         "android.permission.SCHEDULE_EXACT_ALARM"

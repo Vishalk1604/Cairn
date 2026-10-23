@@ -27,6 +27,8 @@ export interface ReminderDraft {
   tags: string
   /** Minutes before due. Empty means no alert. */
   alerts: number[]
+  /** Everything written under the title. */
+  body: string
 }
 
 export const ALERT_CHOICES = [
@@ -94,7 +96,14 @@ export function specForChoice(choice: RepeatChoice, customRule?: RecurrenceSpec)
 }
 
 export function emptyDraft(now: number): ReminderDraft {
-  return { title: '', date: toDateInput(now), time: '', repeat: 'none', priority: 'normal', tags: '', alerts: [0] }
+  return { title: '', date: toDateInput(now), time: '', repeat: 'none', priority: 'normal', tags: '', alerts: [0], body: '' }
+}
+
+/** A line typed in quick add, read the same way, for finishing in the full editor. */
+export function draftFromText(text: string, now: number): ReminderDraft {
+  const parsed = parseCapture(text, now)
+  const draft: ReminderDraft = { ...emptyDraft(now), title: parsed.title || text.trim(), priority: parsed.priority, tags: parsed.tags.join(' ') }
+  return applyWhen(draft, text, now) ?? draft
 }
 
 export function draftFromReminder(r: Reminder): ReminderDraft {
@@ -109,6 +118,7 @@ export function draftFromReminder(r: Reminder): ReminderDraft {
     priority: r.priority,
     tags: r.tags.join(' '),
     alerts: r.alertOffsets ?? [0],
+    body: r.body ?? '',
   }
 }
 
@@ -141,6 +151,7 @@ interface DraftValues {
   priority: Priority
   tags: string[]
   alertOffsets: number[]
+  body: string
 }
 
 function readDraft(draft: ReminderDraft, defaultHour: number): Checked<DraftValues> {
@@ -159,6 +170,7 @@ function readDraft(draft: ReminderDraft, defaultHour: number): Checked<DraftValu
       priority: draft.priority,
       tags: draft.tags.split(/[\s,]+/).filter(Boolean),
       alertOffsets: draft.alerts,
+      body: draft.body,
     },
   }
 }

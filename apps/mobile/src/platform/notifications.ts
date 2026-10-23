@@ -4,6 +4,19 @@ import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 
 const CHANNEL_ID = 'reminders'
+/**
+ * A second channel for high-priority reminders, allowed through Do Not
+ * Disturb. Android only honours that once the person grants Cairn "Do Not
+ * Disturb access" in system settings; until then it behaves like the first.
+ */
+const URGENT_CHANNEL_ID = 'reminders-urgent'
+
+let urgentAlerts = false
+
+/** Whether high-priority reminders go out on the channel that can sound in silent mode. */
+export function setUrgentAlerts(enabled: boolean): void {
+  urgentAlerts = enabled
+}
 
 /** Local notifications only exist on the device builds; the web build is for development. */
 export const notificationsSupported = Platform.OS !== 'web'
@@ -24,6 +37,13 @@ export async function setUpNotifications(): Promise<void> {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: 'Reminders',
       importance: Notifications.AndroidImportance.HIGH,
+    })
+    await Notifications.setNotificationChannelAsync(URGENT_CHANNEL_ID, {
+      name: 'High-priority reminders',
+      description: 'Sound even when the phone is silent or in Do Not Disturb.',
+      importance: Notifications.AndroidImportance.MAX,
+      bypassDnd: true,
+      audioAttributes: { usage: Notifications.AndroidAudioUsage.ALARM, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
     })
   }
 }
@@ -57,12 +77,14 @@ let rescheduling: Promise<void> = Promise.resolve()
 async function reschedule(reminders: readonly Reminder[], now: number): Promise<void> {
   if (!notificationsSupported || (await notificationPermission()) !== 'granted') return
   const plan = planNotifications(reminders, now)
+  const urgent = new Set(urgentAlerts ? reminders.filter((r) => r.priority === 'high').map((r) => r.id) : [])
   await Notifications.cancelAllScheduledNotificationsAsync()
   for (const n of plan) {
+    const channelId = n.reminderId && urgent.has(n.reminderId) ? URGENT_CHANNEL_ID : CHANNEL_ID
     await Notifications.scheduleNotificationAsync({
       identifier: n.id,
       content: { title: n.title, body: n.body, data: n.reminderId ? { reminderId: n.reminderId } : {} },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: n.at, channelId: CHANNEL_ID },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: n.at, channelId },
     })
   }
 }

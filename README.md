@@ -6,7 +6,7 @@ Cairn is a notes and reminders app for Android and Windows. It keeps your next d
 
 A cairn is a stack of stones left on a trail to mark the way for whoever comes next. A reminder is the same thing: a marker you leave for your future self.
 
-> **Status:** early development. Nothing is ready to install yet. See the [roadmap](#roadmap).
+> **Status:** early access. Version 0.2.0 is out for Android and Windows — see [Installing](#installing). Still young; see the [roadmap](#roadmap).
 
 ## Features
 
@@ -42,9 +42,23 @@ Each state also has a non-color cue, so the widgets stay readable for colorblind
 Cairn is designed so that your email never passes through a server we run.
 
 - Gmail and Classroom are read **on your device**, directly from Google. Only the outcome (for example, "a reminder due Friday") is synced.
-- Gmail access is requested only when you open the Notifications tab, and starts with the narrowest scope that works: `gmail.metadata`, which covers headers and labels but not message bodies.
+- Gmail access is requested only when you turn on mail reading, and is read-only.
 - Google tokens live in the OS keystore (Android Keystore, Windows DPAPI) and are never synced.
-- AI classification uses Google Gemini with **your own API key**. Cairn is fully usable without one, using rules only.
+- AI sorting uses NVIDIA's hosted models with **your own API key**, sent straight from your phone. Without a key, mail is checked by fixed rules on the device and nothing goes to an AI service. See [AI sorting](#ai-sorting).
+
+## AI sorting
+
+The Android app can sort your mail with AI: it picks out what matters, files it into folders it names itself (Hackathons, Jobs, and so on), writes a one-line summary, and turns real deadlines into tasks. It is off until you add a key, and **every person uses their own key** — Cairn never ships one, so no one's mail goes through anyone else's account and no single key's rate limit is shared.
+
+To turn it on:
+
+1. Sign in to Cairn on your phone with Google, and switch on mail reading in **Settings**.
+2. In **Settings → AI sorting**, tap **Add an NVIDIA API key**, then **Open the NVIDIA page**. It opens the DeepSeek V4.1 Flash page on [build.nvidia.com](https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash).
+3. Sign in to NVIDIA (a free developer account) and press **Get API Key**.
+4. NVIDIA shows sample code in Python, Node and Shell with your key written into it. Copy **any one** of the three, all of it, and paste it into the box in Cairn. A bare key starting with `nvapi-` works too.
+5. Tap **Check and save**. Cairn finds the key and the model in what you pasted, sends one tiny test request, and says which model answered.
+
+The key is kept in the phone's secure storage and is only ever sent to NVIDIA. If DeepSeek is busy, as it often is on NVIDIA's free tier, Cairn falls back to Nemotron 3.5 Lightning on the same key. NVIDIA's free tier allows about 40 requests a minute per key, far more than one person's mail needs. **Remove key** in the same place turns AI sorting off.
 
 ## Tech stack
 
@@ -58,7 +72,7 @@ Cairn is designed so that your email never passes through a server we run.
 | Auth and sync | Firebase Auth (Google sign-in, PKCE) + Firestore, behind a repository interface |
 | Push | Firebase Cloud Messaging, relayed through a Cloudflare Worker |
 | Server jobs | Cloudflare Workers with cron triggers |
-| AI | Gemini, client-side, rules first |
+| AI | NVIDIA's hosted models (DeepSeek V4.1 Flash, Nemotron as a fallback), client-side, each person's own key |
 | Dates | `chrono-node`, `rrule` |
 
 ## Repository layout
@@ -91,9 +105,21 @@ packages/
 
 ## Installing
 
-Not available yet. APK and EXE builds will be published on the [Releases](https://github.com/Vishalk1604/Cairn/releases) page.
+Download both from the [Releases](https://github.com/Vishalk1604/Cairn/releases) page.
 
-Two things to know ahead of time. The Windows build will be unsigned, so SmartScreen will show a warning (choose **More info → Run anyway**); every release will list a SHA-256 checksum so you can verify the file. And the Gmail features will open to a limited group of testers first, because Google caps unverified apps that read Gmail at 100 users.
+**Android** (7.0 or newer): download `Cairn-<version>.apk` on your phone and open it. Android asks once to allow installs from your browser or file manager; allow it, then install. Updates install over the top, keeping your notes.
+
+**Windows** (10 or 11): run `Cairn-<version>-setup.exe`. It installs for your account only, without admin rights. The installer is not code-signed, so SmartScreen warns about an unknown publisher: choose **More info → Run anyway**.
+
+Cairn on Windows lives in the system tray, next to the clock:
+
+- Click the tray icon to show or hide the widget. Right-click it for the full app, quick capture, **Start with Windows**, and **Quit**.
+- Closing the widget only hides it, so reminders keep firing. **Quit** in the tray menu is what really exits.
+- `Ctrl+Shift+Space` brings up the capture box from anywhere.
+
+**Signing in.** Sign in with the same Google account on both, and notes and tasks sync between them. Google shows **"Google hasn't verified this app"** because Cairn is a small personal project that has not been through Google's paid review; choose **Advanced → Go to Cairn** to continue. For the same reason, Google limits Cairn to its first 100 users.
+
+**Checking a download.** Each release lists SHA-256 checksums in `SHA256SUMS.txt`. On Windows, `Get-FileHash .\Cairn-<version>-setup.exe` prints the one to compare.
 
 ## Development
 
@@ -126,6 +152,8 @@ Things worth knowing about the desktop app:
 - Closing the window hides Cairn in the notification area so reminders keep firing. **Quit** in the tray menu is what actually exits.
 - The tray icon is drawn in Rust and takes the colour of your most urgent reminder. Its colours are checked against the shared design tokens by a test, so they cannot drift.
 - `Ctrl+Shift+Space` jumps to the capture box from anywhere. If another app already owns that combination, Cairn says so and the tray menu still works.
+- Cairn starts as a small frameless widget just above the tray, out of the taskbar; clicking the tray icon shows and hides it. The expand button (or a double click on its title bar, or **Open the full app** in the tray menu) fills the screen with the full app: folders down the side, notes as a grid, tasks opening in a panel beside the list. The widget remembers where you last left it.
+- Photos and recordings made on the phone are downloaded from your Drive into a folder you can choose in **Settings → Photos and recordings** (by default `Media` inside Cairn's app data folder). When one is removed on the phone, the copy on the computer goes too. Only Cairn's own files in that folder are ever touched.
 
 On Android, reminders are handed to the system alarm clock ahead of time, so they fire with the app closed and no network. Cairn asks for exact alarms, because without them Android is free to delay a reminder by several minutes while the phone is dozing. It deliberately does not ask for storage or screen-overlay access, which React Native would otherwise request by default.
 

@@ -1,0 +1,551 @@
+import {
+  classroomDueAt,
+  classroomTaskId,
+  completeReminder,
+  createReminder,
+  DAY,
+  mailTaskId,
+  readMail,
+  senderAddress,
+  updateReminder,
+  type MailMessage,
+  type MailReading,
+  type MailTriage,
+  type Reminder,
+} from '@cairn/core'
+import {
+  AiError,
+  classroomWork,
+  GoogleApiError,
+  mailCursor,
+  MailCursorExpired,
+  mailSince,
+  modelsFor,
+  storedAiSetup,
+  triageMail,
+  type AiSetup,
+  type ClassroomItem,
+} from '@cairn/sync'
+import { accessTokenFor, featuresOf, formatDue, type Account } from '@cairn/ui'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { AppState } from 'react-native'
+import { storage } from '../platform/storage'
+import { useCairn } from './context'
+import { usePreferences, type Feature } from './preferences'
+
+const CURSORS_KEY = 'cairn.inbox.cursors'
+const FOUND_KEY = 'cairn.inbox.found'
+const DISMISSED_KEY = 'cairn.inbox.dismissed'
+const SENDERS_KEY = 'cairn.inbox.senders'
+const SEEN_KEY = 'cairn.inbox.seenAt'
+/** Where the NVIDIA key lives in secure storage. */
+const AI_SECRET = 'ai.nvidia'
+/** How often to look while the app is open. With nothing new, a look costs one cheap request. */
+const POLL_MS = 5 * 60 * 1000
+/** Automatic looks are never closer together than this; a pull to refresh is. */
+const MIN_GAP_MS = 60 * 1000
+/** After Google says slow down. */
+const BACKOFF_MS = 3 * 60 * 1000
+const KEEP_FOUND = 200
+/** Emails read by the model at once. NVIDIA's free tier counts requests per minute. */
+const AI_AT_ONCE = 2
+
+/** Where reading left off, per account. Absent means "start from now" on the next look. */
+interface Cursor {
+  /** Gmail historyId. */
+  mail?: string
+  /** Only coursework created after this is new to Cairn. */
+  classroomSince?: number
+}
+
+/** What the person has said about a sender: their mail always or never belongs in Important. */
+type SenderRule = 'important' | 'unimportant'
+
+export interface InboxEntry {
+  /** Stored without its full text: the summary and Gmail itself are there for reading. */
+  message: MailMessage
+  /** The plain rules' reading, used when there is no model or it could not answer. */
+  reading: MailReading
+  /** The model's reading, when one was made. */
+  triage?: MailTriage
+  /** Set when the person moved it in or out of Important by hand. */
+  marked?: SenderRule
+  /** When Cairn found it, for the unseen count. */
+  foundAt: number
+}
+
+export interface AiStatus {
+  /** Whether a key is saved. */
+  on: boolean
+  /** The model asked first: the one the pasted code was for, or DeepSeek. */
+  preferred?: string
+  /** The model that answered last. */
+  model?: string
+  /** The last thing that went wrong, until something works again. */
+  error?: string
+}
+
+interface Inbox {
+  /** Mail found since reading was switched on, newest first. */
+  found: InboxEntry[]
+  /** Folders the model has filed mail into, in the order they first appeared. */
+  folders: string[]
+  /** Coursework set since Classroom was switched on, not yet handed in. */
+  classroom: ClassroomItem[]
+  /** Accounts with Gmail or Classroom switched on. */
+  readable: Account[]
+  refreshing: boolean
+  error: string | null
+  lastRun: number | null
+  dismissed: Set<string>
+  /** Important mail found since the Inbox was last opened. */
+  unseen: number
+  ai: AiStatus
+  refresh(manual?: boolean): Promise<void>
+  /** Called when a feature is switched on, so reading starts from that moment. */
+  startFresh(account: string, feature: Feature): Promise<void>
+  addAsTask(entry: InboxEntry): Promise<void>
+  dismiss(entry: InboxEntry): void
+  /** Moves an email in or out of Important, and remembers the choice for its sender. */
+  mark(entry: InboxEntry, rule: SenderRule): void
+  markSeen(): void
+  /** Saves (or with null, forgets) the NVIDIA key and the model it was pasted for. */
+  setAiSetup(setup: AiSetup | null): Promise<void>
+}
+
+const Context = createContext<Inbox | null>(null)
+
+async function load<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const raw = await storage.get(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    // A damaged record costs only a fresh start, never a crash.
+    return fallback
+  }
+}
+
+/** Whether Gmail or Classroom is switched on for an account: granted by Google, and not paused here. */
+export function readingOn(account: Account, feature: Feature, paused: Record<Feature, string[]>): boolean {
+  return featuresOf(account)[feature] && !(paused[feature] ?? []).includes(account.identity.sub)
+}
+
+/** Whether an email belongs in Important: the person's word first, then the model's, then the rules'. */
+export function isImportant(entry: InboxEntry): boolean {
+  if (entry.marked) return entry.marked === 'important'
+  if (entry.triage) return entry.triage.important
+  return entry.reading.kind !== 'other'
+}
+
+/** The deadline an email offers, from the model if it read one, else from the rules. */
+export function dueOf(entry: InboxEntry): { title: string; dueAt: number; allDay: boolean } | undefined {
+  if (entry.triage?.task) return entry.triage.task
+  if (entry.reading.dueAt !== undefined) return { title: entry.reading.title || entry.message.subject, dueAt: entry.reading.dueAt, allDay: entry.reading.allDay }
+  return undefined
+}
+
+/** Folders in the order they first turned up, oldest first, so chips do not reshuffle. */
+function foldersOf(entries: readonly InboxEntry[]): string[] {
+  const seen = new Map<string, number>()
+  for (const e of entries) {
+    const folder = e.triage?.folder
+    if (folder) seen.set(folder, Math.min(seen.get(folder) ?? Infinity, e.foundAt))
+  }
+  return [...seen.entries()].sort((a, b) => a[1] - b[1]).map(([name]) => name)
+}
+
+/** Runs at most `limit` at a time, in order. */
+async function eachLimit<T>(items: readonly T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) await run(items[next++]!)
+    }),
+  )
+}
+
+function timeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return undefined
+  }
+}
+
+/** Kept small on disk: the body was for reading once, not for keeping. */
+function stored(entry: InboxEntry): InboxEntry {
+  const { text: _text, ...message } = entry.message
+  return { ...entry, message }
+}
+
+/**
+ * Watches mail and Classroom from the moment each is switched on — never the
+ * backlog — and keeps Tasks in step with Classroom without being asked.
+ *
+ * With an AI key, every new email is read whole by a language model and
+ * sorted: important or not, which folder (Hackathons, Jobs… whatever groups
+ * the mail actually falls into), and whether it asks for something by a date.
+ * Without one, plain rules pick out deadlines, as before. Either way, a date
+ * in an email is only ever suggested as a task, never added unasked —
+ * except Classroom's own notifications, which are sure enough.
+ */
+export function InboxProvider({ children }: { children: ReactNode }) {
+  const { accounts, platform, reminders, userId } = useCairn()
+  const { preferences } = usePreferences()
+  const [found, setFound] = useState<InboxEntry[]>([])
+  const [classroom, setClassroom] = useState<ClassroomItem[]>([])
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastRun, setLastRun] = useState<number | null>(null)
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [senders, setSenders] = useState<Record<string, SenderRule>>({})
+  const [seenAt, setSeenAt] = useState(0)
+  const [aiSetup, setAiSetupState] = useState<AiSetup | null>(null)
+  const [ai, setAi] = useState<Omit<AiStatus, 'on'>>({})
+  const busy = useRef(false)
+  const lastAttempt = useRef(0)
+  const holdUntil = useRef(0)
+  const foundRef = useRef(found)
+  foundRef.current = found
+
+  const readable = useMemo(
+    () => accounts.filter((a) => readingOn(a, 'mail', preferences.paused) || readingOn(a, 'classroom', preferences.paused)),
+    [accounts, preferences.paused],
+  )
+
+  useEffect(() => {
+    void (async () => {
+      const saved = await load<InboxEntry[]>(FOUND_KEY, [])
+      // Entries saved before mail was sorted had no time found and kept their text.
+      setFound(saved.map((e) => stored({ ...e, foundAt: e.foundAt ?? e.message.receivedAt })))
+      const ids = await load<unknown>(DISMISSED_KEY, [])
+      if (Array.isArray(ids)) setDismissed(new Set(ids.filter((id): id is string => typeof id === 'string')))
+      setSenders(await load<Record<string, SenderRule>>(SENDERS_KEY, {}))
+      setSeenAt(await load<number>(SEEN_KEY, 0))
+      setAiSetupState(storedAiSetup(await platform.secrets.get(AI_SECRET).catch(() => null)))
+    })()
+  }, [platform])
+
+  const save = useCallback((next: InboxEntry[]) => {
+    void storage.set(FOUND_KEY, JSON.stringify(next.map(stored)))
+  }, [])
+
+  const applyClassroom = useCallback(
+    async (items: ClassroomItem[], since: Map<string, number>) => {
+      const now = Date.now()
+      const writes: Reminder[] = []
+      for (const { course, work, submitted } of items) {
+        const due = classroomDueAt(work)
+        if (!due) continue
+        const id = classroomTaskId(work.id)
+        const existing = await reminders.get(id)
+        if (!existing) {
+          // Only work set after Classroom was switched on is new to Cairn.
+          const created = work.creationTime ? Date.parse(work.creationTime) : 0
+          if (submitted || created < (since.get(course.id) ?? Infinity) || due.dueAt < now - DAY) continue
+          writes.push(
+            createReminder(
+              {
+                title: work.title,
+                body: work.description,
+                dueAt: due.dueAt,
+                allDay: due.allDay,
+                tags: ['classroom'],
+                courseId: course.id,
+                source: 'classroom',
+                sourceRef: work.id,
+                autoCompleteOn: 'classroom-submission',
+              },
+              { userId, now, id },
+            ),
+          )
+          continue
+        }
+        if (existing.deletedAt !== undefined || existing.status === 'done') continue
+        if (submitted && existing.autoCompleteOn === 'classroom-submission') {
+          writes.push(completeReminder(existing, now))
+        } else if (existing.title !== work.title || existing.dueAt !== due.dueAt) {
+          // The teacher moved the deadline or renamed the work.
+          writes.push(updateReminder(existing, { title: work.title, dueAt: due.dueAt, allDay: due.allDay }, now))
+        }
+      }
+      if (writes.length) await reminders.upsertMany(writes)
+      return writes.filter((w) => w.createdAt === now)
+    },
+    [reminders, userId],
+  )
+
+  /**
+   * Has the model read each email, two at a time. A sender the person has
+   * ruled on is not sent at all. When the model cannot be reached, the
+   * email keeps the rules' reading — nothing is lost, it is just sorted less
+   * finely.
+   */
+  const sortWithAi = useCallback(
+    async (setup: AiSetup, entries: InboxEntry[]) => {
+      const folders = foldersOf(foundRef.current)
+      let failure: string | undefined
+      let model: string | undefined
+      let stop = false
+      await eachLimit(entries, AI_AT_ONCE, async (entry) => {
+        if (stop || senders[senderAddress(entry.message.from)]) return
+        try {
+          const triage = await triageMail(setup, entry.message, { now: Date.now(), folders, timeZone: timeZone() })
+          if (!triage) return
+          entry.triage = triage
+          model = triage.model
+          // Later emails in this batch should reuse a folder an earlier one made.
+          if (triage.folder && !folders.includes(triage.folder)) folders.push(triage.folder)
+        } catch (e) {
+          failure = e instanceof Error ? e.message : String(e)
+          // A wrong key or a long silence will not improve within this batch.
+          if (e instanceof AiError && (e.badKey || e.rateLimited)) stop = true
+        }
+      })
+      // Any answer at all means it works; a failure only stands when nothing answered.
+      if (model) setAi({ model })
+      else if (failure) setAi((current) => ({ ...current, error: failure }))
+    },
+    [senders],
+  )
+
+  const refresh = useCallback(
+    async (manual = false) => {
+      const now = Date.now()
+      if (busy.current || readable.length === 0) return
+      if (now < holdUntil.current) return
+      if (!manual && now - lastAttempt.current < MIN_GAP_MS) return
+      busy.current = true
+      lastAttempt.current = now
+      setRefreshing(true)
+      setError(null)
+      try {
+        const cursors = await load<Record<string, Cursor>>(CURSORS_KEY, {})
+        const fresh: InboxEntry[] = []
+        const work: ClassroomItem[] = []
+        const since = new Map<string, number>()
+        const problems: string[] = []
+
+        for (const account of readable) {
+          const sub = account.identity.sub
+          const cursor: Cursor = { ...cursors[sub] }
+          const mail = readingOn(account, 'mail', preferences.paused)
+          const classes = readingOn(account, 'classroom', preferences.paused)
+          try {
+            const { accessToken } = await accessTokenFor(platform, account)
+            if (mail) {
+              if (!cursor.mail) {
+                // First look: note where the mailbox is and read nothing yet.
+                cursor.mail = await mailCursor(accessToken)
+              } else {
+                try {
+                  // With a model to sort it, Promotions is worth reading: hackathons and job posts land there.
+                  const result = await mailSince(accessToken, account.identity.email, cursor.mail, undefined, { everyTab: aiSetup !== null })
+                  cursor.mail = result.cursor
+                  for (const message of result.messages) {
+                    const reading = readMail(message, Date.now())
+                    // With Classroom read directly, its notification emails would only repeat it.
+                    if (reading.kind === 'classroom' && classes) continue
+                    fresh.push({ message, reading, foundAt: Date.now() })
+                  }
+                } catch (e) {
+                  // Away longer than Gmail keeps history: pick up from now rather than replay.
+                  if (e instanceof MailCursorExpired) cursor.mail = await mailCursor(accessToken)
+                  else throw e
+                }
+              }
+            }
+            if (classes) {
+              cursor.classroomSince ??= Date.now()
+              const items = await classroomWork(accessToken)
+              for (const item of items) since.set(item.course.id, cursor.classroomSince)
+              work.push(...items)
+            }
+          } catch (e) {
+            if (e instanceof GoogleApiError && e.rateLimited) holdUntil.current = Date.now() + BACKOFF_MS
+            problems.push(`${account.identity.email}: ${e instanceof Error ? e.message : String(e)}`)
+          }
+          cursors[sub] = cursor
+        }
+
+        if (aiSetup && fresh.length) await sortWithAi(aiSetup, fresh)
+        // Saved only once the mail is read and sorted, so closing the app midway re-reads it next time.
+        await storage.set(CURSORS_KEY, JSON.stringify(cursors))
+
+        // Without a model, only what the rules found to be due is worth keeping.
+        const kept = fresh
+          .map((e) => {
+            const rule = senders[senderAddress(e.message.from)]
+            return rule ? { ...e, marked: rule } : e
+          })
+          .filter((e) => e.triage || e.marked || e.reading.kind !== 'other')
+
+        const addedFromClassroom = await applyClassroom(work, since)
+
+        // Classroom mail for accounts without Classroom access is sure enough to add.
+        const addedFromMail: Reminder[] = []
+        for (const { message, reading } of kept) {
+          if (!reading.confident || reading.dueAt === undefined || (await reminders.get(mailTaskId(message)))) continue
+          addedFromMail.push(
+            createReminder(
+              { title: reading.title, dueAt: reading.dueAt, allDay: reading.allDay, tags: ['classroom'], source: 'classroom', sourceRef: message.id },
+              { userId, now: Date.now(), id: mailTaskId(message) },
+            ),
+          )
+        }
+        if (addedFromMail.length) await reminders.upsertMany(addedFromMail)
+
+        // Say what turned up, the way a mail app would — but only what matters,
+        // and as one notification when a lot arrives at once.
+        for (const task of [...addedFromClassroom, ...addedFromMail]) {
+          void platform.notify({ title: 'Added to Tasks', body: `${task.title} · ${formatDue(task.dueAt, task.allDay, Date.now())}`, tag: task.id })
+        }
+        const worth = kept.filter((e) => isImportant(e) && !e.reading.confident)
+        if (worth.length > 3) {
+          void platform.notify({ title: `${worth.length} important emails`, body: worth.slice(0, 3).map((e) => e.message.subject).join(' · '), tag: 'inbox' })
+        } else {
+          for (const e of worth) {
+            const due = dueOf(e)
+            void platform.notify({
+              title: e.triage?.folder ?? (due ? 'A deadline in your mail' : 'Important email'),
+              body: e.triage?.summary ?? due?.title ?? e.message.subject,
+              tag: e.message.id,
+            })
+          }
+        }
+
+        if (kept.length) {
+          setFound((current) => {
+            const seen = new Set(current.map((e) => e.message.id))
+            const next = [...kept.filter((e) => !seen.has(e.message.id)).map(stored), ...current]
+              .sort((a, b) => b.message.receivedAt - a.message.receivedAt)
+              .slice(0, KEEP_FOUND)
+            save(next)
+            return next
+          })
+        }
+        setClassroom(work.filter((i) => !i.submitted && (Date.parse(i.work.creationTime ?? '') || 0) >= (since.get(i.course.id) ?? Infinity)))
+        setLastRun(Date.now())
+        if (problems.length) setError(problems.join('\n'))
+      } finally {
+        busy.current = false
+        setRefreshing(false)
+      }
+    },
+    [readable, preferences.paused, platform, applyClassroom, reminders, userId, aiSetup, sortWithAi, senders, save],
+  )
+
+  // Look when reading is switched on, when the app comes forward, and every few minutes while it is open.
+  const latest = useRef(refresh)
+  latest.current = refresh
+  useEffect(() => {
+    void latest.current()
+  }, [readable])
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void latest.current()
+    }, POLL_MS)
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void latest.current()
+    })
+    return () => {
+      clearInterval(timer)
+      sub.remove()
+    }
+  }, [])
+
+  const startFresh = useCallback(async (account: string, feature: Feature) => {
+    const cursors = await load<Record<string, Cursor>>(CURSORS_KEY, {})
+    const cursor = { ...cursors[account] }
+    if (feature === 'mail') delete cursor.mail
+    else delete cursor.classroomSince
+    cursors[account] = cursor
+    await storage.set(CURSORS_KEY, JSON.stringify(cursors))
+  }, [])
+
+  const addAsTask = useCallback(
+    async (entry: InboxEntry) => {
+      const { message, triage } = entry
+      const now = Date.now()
+      const due = dueOf(entry)
+      const sender = message.from.replace(/<[^>]+>/, '').replace(/["']/g, '').trim() || message.from
+      const detail = [triage?.summary ?? message.snippet, `From ${sender}: ${message.subject}`].filter(Boolean).join('\n\n')
+      await reminders.upsert(
+        createReminder(
+          {
+            title: due?.title || message.subject || 'From email',
+            body: detail,
+            dueAt: due?.dueAt ?? now + DAY,
+            allDay: due ? due.allDay : true,
+            tags: triage?.folder ? [triage.folder.toLowerCase().replace(/\s+/g, '-')] : [],
+            source: 'email',
+            sourceRef: message.id,
+          },
+          { userId, now, id: mailTaskId(message) },
+        ),
+      )
+    },
+    [reminders, userId],
+  )
+
+  const dismiss = useCallback(({ message }: InboxEntry) => {
+    setDismissed((current) => {
+      const next = new Set(current).add(message.id)
+      void storage.set(DISMISSED_KEY, JSON.stringify([...next].slice(-500)))
+      return next
+    })
+  }, [])
+
+  const mark = useCallback(
+    (entry: InboxEntry, rule: SenderRule) => {
+      const address = senderAddress(entry.message.from)
+      setSenders((current) => {
+        const next = { ...current, [address]: rule }
+        void storage.set(SENDERS_KEY, JSON.stringify(next))
+        return next
+      })
+      // Every email already here from that sender moves too, not only this one.
+      setFound((current) => {
+        const next = current.map((e) => (senderAddress(e.message.from) === address ? { ...e, marked: rule } : e))
+        save(next)
+        return next
+      })
+    },
+    [save],
+  )
+
+  const markSeen = useCallback(() => {
+    const now = Date.now()
+    setSeenAt(now)
+    void storage.set(SEEN_KEY, JSON.stringify(now))
+  }, [])
+
+  const setAiSetup = useCallback(
+    async (setup: AiSetup | null) => {
+      if (setup) await platform.secrets.set(AI_SECRET, JSON.stringify(setup))
+      else await platform.secrets.delete(AI_SECRET)
+      setAiSetupState(setup)
+      setAi({})
+    },
+    [platform],
+  )
+
+  const folders = useMemo(() => foldersOf(found), [found])
+  const unseen = useMemo(() => found.filter((e) => e.foundAt > seenAt && isImportant(e) && !dismissed.has(e.message.id)).length, [found, seenAt, dismissed])
+  const aiStatus = useMemo<AiStatus>(
+    () => ({ on: aiSetup !== null, preferred: aiSetup ? modelsFor(aiSetup)[0]?.label : undefined, ...ai }),
+    [aiSetup, ai],
+  )
+
+  const value = useMemo(
+    () => ({ found, folders, classroom, readable, refreshing, error, lastRun, dismissed, unseen, ai: aiStatus, refresh, startFresh, addAsTask, dismiss, mark, markSeen, setAiSetup }),
+    [found, folders, classroom, readable, refreshing, error, lastRun, dismissed, unseen, aiStatus, refresh, startFresh, addAsTask, dismiss, mark, markSeen, setAiSetup],
+  )
+  return <Context.Provider value={value}>{children}</Context.Provider>
+}
+
+export function useInbox(): Inbox {
+  const value = useContext(Context)
+  if (!value) throw new Error('useInbox needs an InboxProvider')
+  return value
+}

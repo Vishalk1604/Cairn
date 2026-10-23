@@ -11,27 +11,23 @@ import {
   type GoogleIdentity,
   type TokenSet,
 } from '@cairn/auth'
-import { GOOGLE_CLIENTS, GOOGLE_SCOPES } from '@cairn/sync'
-import type { Platform, SecretStore } from '../platform'
+import { GOOGLE_SCOPES } from '@cairn/sync'
+import type { Platform, SecretStore } from './platform'
 
-/** Every connected account, encrypted together under DPAPI. */
+/**
+ * Every connected account, encrypted together in the host's secret store:
+ * DPAPI on Windows, the keystore on Android.
+ */
 const ACCOUNTS_KEY = 'google-accounts'
 
 /**
- * Google requires this at the token exchange for a Desktop client, even
- * alongside PKCE. It is not confidential for an installed app — it ships in
- * the executable — but it is kept out of the repository and injected at
- * build time all the same. See .env.example.
+ * What the token endpoint is told about this client. Both halves come from
+ * the host because only the host knows them: Google requires a "secret" at
+ * the token exchange for a Desktop client even alongside PKCE, and requires
+ * none at all for an Android one.
  */
-const CLIENT_SECRET = import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_SECRET
-
-function credentials(): { clientId: string; clientSecret: string } {
-  if (!CLIENT_SECRET) {
-    throw new Error(
-      'This build has no Google client secret. Copy apps/desktop/.env.example to .env.local, fill it in, and rebuild.',
-    )
-  }
-  return { clientId: GOOGLE_CLIENTS.desktop, clientSecret: CLIENT_SECRET }
+function credentials(platform: Platform): { clientId: string; clientSecret?: string } {
+  return { clientId: platform.googleClientId, clientSecret: platform.googleClientSecret() }
 }
 
 /**
@@ -89,10 +85,17 @@ export function sources(accounts: readonly Account[]): Account[] {
   return accounts.filter((a) => a.role === 'source')
 }
 
+/** Which features this account has granted Google permission for. Whether they are switched on is a separate, local choice. */
 export function featuresOf(account: Account): SourceFeatures {
+  const has = (scope: string) => account.scopes.includes(scope)
   return {
-    mail: GOOGLE_SCOPES.mail.every((s) => account.scopes.includes(s)),
-    classroom: GOOGLE_SCOPES.classroom.every((s) => account.scopes.includes(s)),
+    mail: GOOGLE_SCOPES.mail.every(has),
+    // Accounts connected before the scope list was trimmed hold the older
+    // synonym for coursework; either one is enough to read submissions.
+    classroom:
+      has('https://www.googleapis.com/auth/classroom.courses.readonly') &&
+      (has('https://www.googleapis.com/auth/classroom.coursework.me.readonly') ||
+        has('https://www.googleapis.com/auth/classroom.student-submissions.me.readonly')),
   }
 }
 
@@ -134,7 +137,7 @@ export async function connect(
   const redirect = await platform.authorize((uri) => {
     redirectUri = uri
     return authorizeUrl({
-      clientId: GOOGLE_CLIENTS.desktop,
+      clientId: platform.googleClientId,
       redirectUri: uri,
       scopes,
       challenge: pkce.challenge,
@@ -150,7 +153,7 @@ export async function connect(
   })
 
   const code = readRedirect(redirect, state)
-  const tokens = await exchangeCode({ ...credentials(), redirectUri, code, verifier: pkce.verifier })
+  const tokens = await exchangeCode({ ...credentials(platform), redirectUri, code, verifier: pkce.verifier })
   if (!tokens.idToken) throw new ConnectError('Google did not say which account that was')
   if (!tokens.refreshToken) {
     throw new ConnectError('Google withheld the long-term permission Cairn needs. Try connecting again.')
@@ -203,7 +206,7 @@ export async function accessTokenFor(platform: Platform, account: Account): Prom
   const held = tokens.get(account.identity.sub)
   if (held && !isExpired(held, Date.now())) return held
 
-  const fresh = await refreshTokens({ ...credentials(), refreshToken: account.refreshToken })
+  const fresh = await refreshTokens({ ...credentials(platform), refreshToken: account.refreshToken })
   tokens.set(account.identity.sub, fresh)
 
   // Google can hand back a different refresh token; storing it keeps the

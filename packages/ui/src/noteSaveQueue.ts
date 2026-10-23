@@ -1,4 +1,4 @@
-import type { Note } from '@cairn/core'
+import type { Attachment, Note } from '@cairn/core'
 import type { Actions } from './actions'
 
 /** A note editor's form values. Tags are the raw text of the tags field. */
@@ -7,6 +7,8 @@ export interface NoteFormValues {
   body: string
   tags: string
   pinned: boolean
+  /** Everything the body points at; createNote drops any the writing has lost. */
+  attachments?: Attachment[]
 }
 
 /**
@@ -23,9 +25,16 @@ export function createNoteSaveQueue(actions: Pick<Actions, 'addNote' | 'saveNote
   const save = (): Promise<void> => {
     queue = queue.then(async () => {
       const values = pending
-      if (!values || (!values.title.trim() && !values.body.trim())) return
+      // A photo or a recording alone is worth saving, even with nothing typed.
+      if (!values || (!values.title.trim() && !values.body.trim() && !values.attachments?.length)) return
       pending = null
-      const input = { title: values.title, body: values.body, tags: values.tags.split(/[\s,]+/).filter(Boolean), pinned: values.pinned }
+      const input = {
+        title: values.title,
+        body: values.body,
+        tags: values.tags.split(/[\s,]+/).filter(Boolean),
+        pinned: values.pinned,
+        attachments: values.attachments,
+      }
       const result = saved ? await actions.saveNote(saved, input) : await actions.addNote(input)
       if (result) saved = result
       else pending ??= values

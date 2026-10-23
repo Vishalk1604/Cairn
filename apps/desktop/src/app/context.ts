@@ -1,11 +1,11 @@
 import type { NoteRepository, ReminderRepository } from '@cairn/sync'
+import type { Account, SourceFeatures } from '@cairn/ui'
 import { createContext, useContext } from 'react'
-import type { Platform } from '../platform'
-import type { Account, SourceFeatures } from './accounts'
+import type { DesktopPlatform } from '../platform'
 import type { AuthState } from './CairnProvider'
 
 export interface Cairn {
-  platform: Platform
+  platform: DesktopPlatform
   /** `local` until an account is connected, then the Firebase uid. */
   userId: string
   reminders: ReminderRepository

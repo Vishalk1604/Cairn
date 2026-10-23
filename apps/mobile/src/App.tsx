@@ -1,149 +1,193 @@
-import { urgencyOf, type Note, type Reminder } from '@cairn/core'
+import type { Note, Reminder } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
 import { StatusBar } from 'expo-status-bar'
-import { useEffect, useRef, useState } from 'react'
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native'
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
-import { CairnContext, openCairn, useCairn, type Cairn } from './state/context'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import Animated from 'react-native-reanimated'
+import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import { BottomNav, type Section } from './components/BottomNav'
+import { SnoozeSheet } from './components/SnoozeSheet'
+import { onNotificationOpened, scheduleNotifications, setUpNotifications, setUrgentAlerts } from './platform/notifications'
+import { EditorScreen } from './screens/EditorScreen'
+import { FoldersScreen } from './screens/FoldersScreen'
+import { InboxScreen } from './screens/InboxScreen'
+import { NotesScreen } from './screens/NotesScreen'
+import { SettingsScreen } from './screens/SettingsScreen'
+import { TaskEditorScreen } from './screens/TaskEditorScreen'
+import { TasksScreen } from './screens/TasksScreen'
+import { CairnProvider } from './state/CairnProvider'
+import { useCairn } from './state/context'
+import { ALL_FOLDER } from './state/folders'
 import { useNow, useObserved } from './state/hooks'
+import { InboxProvider, useInbox } from './state/inbox'
+import { MediaSync } from './state/media'
+import { PreferencesProvider, usePreferences } from './state/preferences'
 import { ToastProvider } from './state/toast'
 import { useNotifications } from './state/useNotifications'
-import { Button } from './components/controls'
-import { DoneList } from './components/DoneList'
-import { NoteEditor } from './components/NoteEditor'
-import { NoteList } from './components/NoteList'
-import { QuickCapture } from './components/QuickCapture'
-import { ReminderEditor } from './components/ReminderEditor'
-import { ReminderList } from './components/ReminderList'
-import { SnoozeSheet } from './components/SnoozeSheet'
-import { onNotificationOpened, setUpNotifications } from './platform/notifications'
-import { colors } from './theme'
-
-type Tab = 'reminders' | 'notes' | 'done'
-type Editing = { kind: 'reminder'; reminder?: Reminder } | { kind: 'note'; note?: Note }
+import { colors, space, useColors } from './theme'
+import { Reveal, type Rect } from './ui/Reveal'
+import { fadeIn, fadeOut, pageIn, pageOut } from './ui/motion'
 
 const ACTIVE: ReminderQuery = { status: ['pending', 'snoozed'] }
 
 export function App() {
-  const [cairn, setCairn] = useState<Cairn | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [fatal, setFatal] = useState<string | null>(null)
 
   useEffect(() => {
     void setUpNotifications()
-    openCairn().then(setCairn, (e: unknown) => setError(String(e)))
   }, [])
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="auto" />
-      {error ? (
-        <Text style={styles.fatal} accessibilityRole="alert">
-          Cairn couldn't open its data: {error}
-        </Text>
-      ) : cairn ? (
-        <CairnContext.Provider value={cairn}>
-          <ToastProvider>
-            <Main />
-          </ToastProvider>
-        </CairnContext.Provider>
-      ) : null}
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
+      {/* Measured natively before the first frame, so launching straight after boot never lays out with zero insets. */}
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <StatusBar style="light" />
+        {fatal ? (
+          <Text style={styles.fatal} accessibilityRole="alert">
+            Cairn couldn't open its data: {fatal}
+          </Text>
+        ) : (
+          <CairnProvider onFatal={setFatal}>
+            <PreferencesProvider>
+              <ToastProvider>
+                <MediaSync>
+                  <InboxProvider>
+                    <Main />
+                  </InboxProvider>
+                </MediaSync>
+              </ToastProvider>
+            </PreferencesProvider>
+          </CairnProvider>
+        )}
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }
 
+/** A note being edited, and the shape on screen it grew out of. */
+interface Editing {
+  note?: Note
+  origin: Rect
+  folder?: string
+  open: boolean
+}
+
+type Page = 'folders' | 'settings' | null
+
 function Main() {
+  const c = useColors()
   const { reminders } = useCairn()
+  const { preferences } = usePreferences()
+  const inbox = useInbox()
   const active = useObserved(reminders, ACTIVE)
   const now = useNow(active)
   const notifications = useNotifications(active)
-  const [tab, setTab] = useState<Tab>('reminders')
+  const [section, setSection] = useState<Section>('notes')
+  const [folder, setFolder] = useState(ALL_FOLDER)
+  const [selecting, setSelecting] = useState(false)
   const [editing, setEditing] = useState<Editing | null>(null)
+  const [page, setPage] = useState<Page>(null)
+  const [task, setTask] = useState<{ reminder?: Reminder; text?: string } | null>(null)
   const [snoozing, setSnoozing] = useState<Reminder | null>(null)
   const activeRef = useRef(active)
+  // The first screen appears as it is. Fading it in from nothing meant that a
+  // phone too busy to run that first animation (just after boot) showed an
+  // empty page under the tab bar.
+  const shown = useRef(false)
+  useEffect(() => {
+    shown.current = true
+  }, [])
   activeRef.current = active
 
   useEffect(
     () =>
       onNotificationOpened((id) => {
         const reminder = activeRef.current.find((r) => r.id === id)
-        setTab('reminders')
-        if (reminder) setEditing({ kind: 'reminder', reminder })
+        setSection('tasks')
+        if (reminder) setTask({ reminder })
       }),
     [],
   )
 
-  const overdue = active.filter((r) => urgencyOf(r, now) === 'overdue').length
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'reminders', label: overdue ? `Reminders · ${overdue} overdue` : `Reminders · ${active.length}` },
-    { id: 'notes', label: 'Notes' },
-    { id: 'done', label: 'Done' },
-  ]
+  // Asked for when there is first something to alert about, not on first launch.
+  useEffect(() => {
+    if (active.length > 0 && notifications.permission === 'undetermined') void notifications.request()
+  }, [active.length, notifications])
+
+  useEffect(() => {
+    setUrgentAlerts(preferences.urgentAlerts)
+    if (notifications.permission === 'granted') void scheduleNotifications(activeRef.current, Date.now())
+  }, [preferences.urgentAlerts, notifications.permission])
+
+  const closeEditor = useCallback(() => setEditing((e) => (e ? { ...e, open: false } : e)), [])
+  const editorGone = useCallback(() => setEditing(null), [])
+  const closePage = useCallback(() => setPage(null), [])
+
+  const unseen = section === 'inbox' ? 0 : inbox.unseen
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-      <View style={styles.top}>
-        <QuickCapture
-          onCaptured={(result) => {
-            // Ask for notifications the first time there's something to be notified about.
-            if (result?.kind === 'reminder' && notifications.permission === 'undetermined') void notifications.request()
-          }}
-        />
-        {notifications.supported && notifications.permission === 'denied' && (
-          <Pressable onPress={() => void Linking.openSettings()} accessibilityRole="button" style={styles.banner}>
-            <Text>Notifications are off, so Cairn can't alert you. Tap to open settings.</Text>
-          </Pressable>
-        )}
-        {notifications.supported && notifications.permission === 'undetermined' && active.length > 0 && (
-          <Pressable onPress={() => void notifications.request()} accessibilityRole="button" style={styles.banner}>
-            <Text>Turn on notifications so reminders can alert you.</Text>
-          </Pressable>
-        )}
-        <View style={styles.tabs} accessibilityRole="tablist">
-          {tabs.map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => setTab(t.id)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: tab === t.id }}
-              style={[styles.tab, tab === t.id && styles.tabSelected]}
-            >
-              <Text style={tab === t.id ? styles.tabTextSelected : styles.tabText}>{t.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
+    <View style={[styles.root, { backgroundColor: c.bg }]}>
+      <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
+        <Animated.View key={section} entering={shown.current ? fadeIn : undefined} exiting={fadeOut} style={styles.root}>
+          {section === 'notes' && (
+            <NotesScreen
+              folder={folder}
+              onFolderChange={setFolder}
+              onOpen={(note, origin) => setEditing({ note, origin, open: true })}
+              onNew={(origin, current) => setEditing({ origin, folder: current, open: true })}
+              onFolders={() => setPage('folders')}
+              onSettings={() => setPage('settings')}
+              onSelectingChange={setSelecting}
+            />
+          )}
+          {section === 'tasks' && (
+            <TasksScreen active={active} now={now} onEdit={(reminder) => setTask({ reminder })} onSnooze={setSnoozing} onMore={(text) => setTask({ text })} />
+          )}
+          {section === 'inbox' && <InboxScreen onSettings={() => setPage('settings')} />}
+        </Animated.View>
 
-      <View style={styles.body}>
-        {tab === 'reminders' && (
-          <ReminderList reminders={active} now={now} onEdit={(reminder) => setEditing({ kind: 'reminder', reminder })} onSnooze={setSnoozing} />
-        )}
-        {tab === 'notes' && <NoteList onOpen={(note) => setEditing({ kind: 'note', note })} />}
-        {tab === 'done' && <DoneList now={now} />}
-      </View>
+        {!selecting && <BottomNav current={section} badge={unseen} onSelect={setSection} />}
+      </SafeAreaView>
 
-      {/* Notes are written in the composer at the top, so only the reminder
-          form — with its date, repeat and alert controls — needs a way in. */}
-      {tab === 'reminders' && (
-        <Button title="New reminder" primary style={styles.fab} onPress={() => setEditing({ kind: 'reminder' })} />
+      {page && (
+        <Animated.View entering={pageIn} exiting={pageOut} style={[StyleSheet.absoluteFill, { backgroundColor: c.bg }]}>
+          <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
+            {page === 'folders' ? (
+              <FoldersScreen
+                current={folder}
+                onBack={closePage}
+                onPick={(id) => {
+                  setFolder(id)
+                  setPage(null)
+                }}
+              />
+            ) : (
+              <SettingsScreen onBack={closePage} />
+            )}
+          </SafeAreaView>
+        </Animated.View>
       )}
 
-      {editing?.kind === 'reminder' && <ReminderEditor reminder={editing.reminder} now={now} onClose={() => setEditing(null)} />}
-      {editing?.kind === 'note' && <NoteEditor note={editing.note} onClose={() => setEditing(null)} />}
+      {editing && (
+        <Reveal origin={editing.origin} open={editing.open} background={c.bg} onClosed={editorGone}>
+          <EditorScreen note={editing.note} folder={editing.folder} onClose={closeEditor} />
+        </Reveal>
+      )}
+
+      {task && (
+        <Animated.View entering={pageIn} exiting={pageOut} style={[StyleSheet.absoluteFill, { backgroundColor: c.bg }]}>
+          <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
+            <TaskEditorScreen key={task.reminder?.id ?? 'new'} reminder={task.reminder} text={task.text} now={now} onClose={() => setTask(null)} />
+          </SafeAreaView>
+        </Animated.View>
+      )}
       {snoozing && <SnoozeSheet reminder={snoozing} onClose={() => setSnoozing(null)} />}
-    </SafeAreaView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  top: { paddingHorizontal: 16, paddingTop: 8, gap: 8 },
-  body: { flex: 1, paddingHorizontal: 16 },
-  banner: { padding: 10, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-  tabs: { flexDirection: 'row', gap: 4, borderBottomWidth: 1, borderBottomColor: colors.line },
-  tab: { paddingVertical: 8, paddingHorizontal: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabSelected: { borderBottomColor: colors.fg },
-  tabText: { color: colors.muted },
-  tabTextSelected: { color: colors.fg, fontWeight: '700' },
-  fab: { position: 'absolute', right: 16, bottom: 24 },
-  fatal: { padding: 24, color: colors.danger },
+  root: { flex: 1 },
+  fatal: { padding: space.xl, color: colors.danger },
 })

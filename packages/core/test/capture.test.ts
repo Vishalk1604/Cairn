@@ -10,6 +10,9 @@ const dated: [string, string, number, boolean][] = [
   ['submit DBMS assignment by friday 6pm', 'submit DBMS assignment', at(2026, 9, 18, 18), false],
   ['DBMS assignment due friday', 'DBMS assignment', at(2026, 9, 18, 9), true],
   ['call mom at 5', 'call mom', at(2026, 9, 14, 17), false],
+  // Typed into the editor by hand on 21 October and silently kept as a note.
+  ['maths 22 oct', 'maths', at(2026, 10, 22, 9), true],
+  ['maths test 22 oct 10am', 'maths test', at(2026, 10, 22, 10), false],
   ['call mom at 9', 'call mom', at(2026, 9, 15, 9), false],
   ['call mom 6pm', 'call mom', at(2026, 9, 14, 18), false],
   ['meet at 2 on wed', 'meet', at(2026, 9, 16, 14), false],

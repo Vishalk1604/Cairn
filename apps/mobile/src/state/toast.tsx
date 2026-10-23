@@ -51,7 +51,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 32,
+    // Clear of the tab bar, which would otherwise sit under it and stop taking taps.
+    bottom: 104,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,

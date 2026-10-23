@@ -78,9 +78,19 @@ describe('the owner', () => {
     await assertSucceeds(setDoc(doc(mine(), 'users', ME, 'devices', 'laptop'), { token: 'abc', seenAt: 1 }))
     await assertSucceeds(setDoc(doc(mine(), 'users', ME, 'summary', 'today'), { items: [], generatedAt: 1 }))
   })
+
+  it('can keep its own preferences', async () => {
+    await assertSucceeds(setDoc(doc(mine(), 'users', ME, 'preferences', 'app'), { pinnedTags: ['gym'], theme: 'dark' }))
+    await assertSucceeds(getDoc(doc(mine(), 'users', ME, 'preferences', 'app')))
+  })
 })
 
 describe('everyone else', () => {
+  it('cannot read or write another user’s preferences', async () => {
+    await assertFails(setDoc(doc(theirs(), 'users', ME, 'preferences', 'app'), { theme: 'dark' }))
+    await assertFails(getDoc(doc(theirs(), 'users', ME, 'preferences', 'app')))
+  })
+
   it('cannot read or write another user’s documents', async () => {
     await env.withSecurityRulesDisabled(async (admin) => {
       await setDoc(doc(admin.firestore(), 'users', ME, 'notes', 'n1'), note('n1'))

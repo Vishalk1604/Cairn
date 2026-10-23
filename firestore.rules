@@ -31,7 +31,10 @@ service cloud.firestore {
         && request.resource.data.title is string
         && request.resource.data.pinned is bool
         && request.resource.data.tags is list
-        && (!('body' in request.resource.data) || request.resource.data.body is string);
+        && (!('body' in request.resource.data) || request.resource.data.body is string)
+        // Descriptions of images and recordings. The files themselves live in
+        // Drive, so what lands here must stay a small list, not a payload.
+        && (!('attachments' in request.resource.data) || request.resource.data.attachments is list);
     }
 
     match /users/{userId}/reminders/{reminderId} {
@@ -43,7 +46,14 @@ service cloud.firestore {
         && request.resource.data.dueAt is number
         && request.resource.data.allDay is bool
         && request.resource.data.status in ['pending', 'snoozed', 'done']
-        && request.resource.data.priority in ['low', 'normal', 'high'];
+        && request.resource.data.priority in ['low', 'normal', 'high']
+        && (!('body' in request.resource.data) || request.resource.data.body is string);
+    }
+
+    // Which folders are pinned, their order, the chosen theme. Small, personal
+    // and replaceable: shape is the app's business, ownership still is not.
+    match /users/{userId}/preferences/{prefId} {
+      allow read, write: if signedInAs(userId);
     }
 
     // Per-device registration for push, and the denormalised payload both

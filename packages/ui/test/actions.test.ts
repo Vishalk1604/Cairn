@@ -100,18 +100,17 @@ describe('note actions', () => {
 })
 
 describe('capture with a body', () => {
-  it('keeps the body as a note the reminder points at', async () => {
-    const { reminders, notes, actions, lastToast } = await setup()
+  it('keeps the body on the task itself, making no second item', async () => {
+    const { reminders, notes, actions } = await setup()
     await actions.capture({ title: 'submit DBMS assignment friday 6pm', body: 'Use the template from last week.' })
 
     const [r] = await reminders.list()
-    const [n] = await notes.list()
-    expect(r?.noteId).toBe(n?.id)
-    expect(n).toMatchObject({ title: 'submit DBMS assignment', body: 'Use the template from last week.' })
-    expect(lastToast().message).toContain('with your note')
+    expect(r).toMatchObject({ title: 'submit DBMS assignment', body: 'Use the template from last week.' })
+    expect(r?.noteId).toBeUndefined()
+    expect(await notes.list()).toEqual([])
   })
 
-  it('undo takes back both the reminder and its note', async () => {
+  it('undo takes the task back', async () => {
     const { reminders, notes, actions, undo } = await setup()
     await actions.capture({ title: 'lab report tomorrow', body: 'Graphs on page 3.' })
     await undo()

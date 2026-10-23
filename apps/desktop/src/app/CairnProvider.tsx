@@ -9,8 +9,6 @@ import {
   type ReminderRepository,
   type Repository,
 } from '@cairn/sync'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Platform } from '../platform'
 import {
   accessTokenFor,
   connect,
@@ -20,7 +18,9 @@ import {
   owner,
   type Account,
   type SourceFeatures,
-} from './accounts'
+} from '@cairn/ui'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { DesktopPlatform } from '../platform'
 import { CairnContext, type Cairn } from './context'
 
 export type AuthState =
@@ -38,7 +38,7 @@ interface Store {
   close?: () => void
 }
 
-export function CairnProvider({ platform, children }: { platform: Platform; children: ReactNode }) {
+export function CairnProvider({ platform, children }: { platform: DesktopPlatform; children: ReactNode }) {
   const [store, setStore] = useState<Store | null>(null)
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -192,7 +192,7 @@ function message(error: unknown): string {
  * duplicate anyway.
  */
 async function carryLocalWorkUp(
-  platform: Platform,
+  platform: DesktopPlatform,
   uid: string,
   from: Store | null,
   to: { reminders: ReminderRepository; notes: NoteRepository },
@@ -205,10 +205,15 @@ async function carryLocalWorkUp(
     from.reminders.list({ includeDeleted: true }),
     from.notes.list({ includeDeleted: true }),
   ])
-  await Promise.all([copy(reminders, to.reminders), copy(notes, to.notes)])
+  await Promise.all([copy(reminders, to.reminders, uid), copy(notes, to.notes, uid)])
   await platform.storage.set(marker, String(Date.now()))
 }
 
-async function copy<T extends Entity>(items: readonly T[], into: Repository<T, unknown>): Promise<void> {
-  if (items.length > 0) await into.upsertMany(items)
+/**
+ * Re-files each item under the account. Work done signed out belongs to the
+ * 'local' user, and the rules refuse any document whose userId is not the
+ * signed-in one — so copied as-is, none of it would ever have arrived.
+ */
+async function copy<T extends Entity>(items: readonly T[], into: Repository<T, unknown>, uid: string): Promise<void> {
+  if (items.length > 0) await into.upsertMany(items.map((item) => ({ ...item, userId: uid })))
 }

@@ -15,8 +15,12 @@
     "core:event:allow-listen",
     "notification:default",
     "store:default",
+    "dialog:allow-open",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled"
+    "autostart:allow-is-enabled",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized"
   ]
 }

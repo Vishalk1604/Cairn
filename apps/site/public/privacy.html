@@ -11,17 +11,24 @@
       <p class="back"><a href="/">← Cairn</a></p>
       <h1>Privacy</h1>
       <p class="lead">
-        Cairn is a personal project with one user: its author. This page describes exactly what the app touches and
-        where it goes, in plain language.
+        Cairn is a small personal project, used by its author and a few friends. This page describes exactly what the
+        app touches and where it goes, in plain language.
       </p>
 
       <section>
         <h2>The short version</h2>
         <ul>
-          <li>Your notes and reminders are stored in <strong>your own Google Cloud Firestore</strong> database.</li>
-          <li>Images and recordings are stored in <strong>your own Google Drive</strong>.</li>
+          <li>
+            Your notes and reminders are stored in Cairn's <strong>Google Cloud Firestore</strong> database, where only
+            your account can read them.
+          </li>
+          <li>Images and recordings are stored in <strong>your own Google Drive</strong>, not in Cairn's database.</li>
           <li>Your email is read <strong>on your own device</strong> and is never sent to any server the developer runs.</li>
-          <li>The developer operates <strong>no server</strong> and has no copy of your data.</li>
+          <li>
+            <strong>Only if you add your own NVIDIA API key</strong>, the text of new emails is sent to NVIDIA's AI
+            service to be sorted. Without a key, nothing leaves your device for this.
+          </li>
+          <li>The developer runs <strong>no server</strong> of their own. Nothing is sold, shared or analysed.</li>
         </ul>
       </section>
 
@@ -34,8 +41,10 @@
           <dt>Gmail (read-only)</dt>
           <dd>
             To find deadlines — assignment due dates in Google Classroom notification emails, and dates mentioned by
-            teachers. Message content is read on your device. Only the result, such as “a reminder due Friday”, is
-            saved. Message bodies are never stored and never transmitted to the developer.
+            teachers, and to pick out mail that matters. Message content is read on your device. Only the result —
+            such as a one-line summary, a folder name or “a reminder due Friday” — is saved, on your phone. Message
+            bodies are never stored and never transmitted to the developer. They go to an AI service only as
+            described under <a href="#ai">Automatic sorting of email</a>.
           </dd>
 
           <dt>Google Classroom (read-only)</dt>
@@ -55,10 +64,12 @@
       <section>
         <h2>Where your data lives</h2>
         <p>
-          Notes, reminders and their metadata are stored in Cloud Firestore, in a Google Cloud project belonging to
-          the user. Attachments are stored in the signed-in user's own Google Drive and count against that account's
-          storage. Access is restricted by security rules so that a signed-in account can read and write only its own
-          data.
+          Notes, reminders and their metadata are stored in Cloud Firestore, in the Google Cloud project that runs
+          Cairn. Access is restricted by security rules so that a signed-in account can read and write only its own
+          data; no other user can see it. As the owner of that project, the developer could technically view the
+          database through Google's console, and does not. Attachments are not in the database at all: they are
+          stored in the signed-in user's own Google Drive and count against that account's storage. Email is never
+          stored in the database.
         </p>
         <p>
           If you connect more than one Google account — for example a personal account and a university account —
@@ -67,17 +78,29 @@
         </p>
       </section>
 
-      <section>
+      <section id="ai">
         <h2>Automatic sorting of email</h2>
         <p>
-          Cairn can sort incoming mail into important and unimportant. Most of this is decided on your device by
-          fixed rules, with no third party involved.
+          Without an AI key, Cairn sorts mail on your device with fixed rules, and no third party is involved.
         </p>
         <p>
-          <strong>If, and only if, you supply your own Google Gemini API key</strong>, mail that the rules cannot
-          classify is sent to Google's Gemini API for scoring. What is sent is the sender, subject line, a short
-          snippet and the date — not the full message. This is a choice you make: the feature is off until you add a
-          key, and Cairn works without one. Your use of that API is governed by Google's terms for it.
+          <strong>If, and only if, you add your own NVIDIA API key</strong> in Settings → AI sorting, each new email
+          is sent to NVIDIA's AI service (<code>integrate.api.nvidia.com</code>) to decide whether it is important,
+          which folder it belongs in, a one-line summary, and any deadline in it. What is sent is the sender, the
+          subject, when it arrived, and up to the first 6,000 characters of the message text. Attachments are never
+          sent. While a key is set, Cairn also reads the Promotions and Social tabs so that nothing important is
+          missed there. Spam and Trash are never read.
+        </p>
+        <p>
+          The request is made directly from your phone, with your key. It does not pass through any server the
+          developer runs. Your key is kept in your phone's secure storage and is never synced or shared. What NVIDIA
+          does with a request is governed by NVIDIA's terms for the key you created, so read them before adding one.
+          Removing the key in Settings turns AI sorting off straight away.
+        </p>
+        <p>
+          When you mark a sender as important or not important, that choice is saved on your phone as a rule. It
+          takes priority over the AI, and it is never sent anywhere. Cairn does not use your data to train any AI
+          model, and does not ask anyone else to.
         </p>
       </section>
 
@@ -118,7 +141,7 @@
       <footer>
         <a href="/">Cairn</a>
         <a href="/terms">Terms</a>
-        <span>Last updated 21 October 2026</span>
+        <span>Last updated 22 October 2026</span>
       </footer>
     </main>
   </body>

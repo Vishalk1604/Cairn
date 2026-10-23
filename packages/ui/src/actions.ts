@@ -109,32 +109,25 @@ export function createActions({ reminders, notes, userId, toast, now = Date.now,
 
         const parsed = parseCapture(title, now(), capture)
         if (parsed.kind === 'reminder') {
-          // The body is worth keeping, so it becomes a note the reminder
-          // points at rather than being thrown away with the date.
-          const note = body ? createNote({ title: parsed.title, body, tags: parsed.tags }, ctx()) : undefined
-          if (note) await notes.upsert(note)
+          // The body stays on the task itself. One dated thought is one item:
+          // splitting it into a task plus a note made the writing go somewhere
+          // the task did not take you.
           const r = createReminder(
             {
               title: parsed.title,
+              body,
               dueAt: parsed.dueAt!,
               allDay: parsed.allDay,
               rrule: parsed.rrule,
               priority: parsed.priority,
               tags: parsed.tags,
-              noteId: note?.id,
             },
             ctx(),
           )
           await reminders.upsert(r)
           toast({
-            message: `Added “${r.title}” for ${when(r.dueAt, r.allDay)}${note ? ', with your note' : ''}`,
-            action: {
-              label: 'Undo',
-              run: () => {
-                void reminders.remove(r.id, now())
-                if (note) void notes.remove(note.id, now())
-              },
-            },
+            message: `Added “${r.title}” for ${when(r.dueAt, r.allDay)}`,
+            action: { label: 'Undo', run: () => void reminders.remove(r.id, now()) },
           })
         } else {
           const n = createNote({ title: parsed.title, body, tags: parsed.tags }, ctx())

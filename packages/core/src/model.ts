@@ -21,11 +21,43 @@ export type Priority = 'low' | 'normal' | 'high'
  */
 export type ReminderStatus = 'pending' | 'snoozed' | 'done'
 
+export type AttachmentKind = 'image' | 'audio'
+
+/**
+ * An image or recording written into a note. Only the description lives in the
+ * document; the file itself stays on the device that made it and in the owner's
+ * Drive once uploaded, so notes remain small enough to sync for free.
+ *
+ * There is deliberately no file path here. A path is only true on the phone
+ * that wrote it, and this record syncs everywhere — so each device keeps its
+ * copy at a place derived from the id, and fetches it from Drive when missing.
+ *
+ * Where it sits in the writing is the body's business — see blocks.ts.
+ */
+export interface Attachment {
+  id: string
+  kind: AttachmentKind
+  mime: string
+  bytes?: number
+  /** Images: known up front, so a placeholder can hold the right shape while the file loads. */
+  width?: number
+  height?: number
+  /** Images: shown across the page unless made small, so a photo need not take over a note. */
+  size?: 'small'
+  /** Audio. */
+  durationMs?: number
+  /** Set once uploaded; how every other device gets it. */
+  driveFileId?: string
+  createdAt: number
+}
+
 export interface Note extends Entity {
   title: string
   body?: string
   /** The body before the last edit, so a last-write-wins clobber is recoverable. */
   bodyPrev?: string
+  /** Only those the body still points at; see pruneAttachments. */
+  attachments?: Attachment[]
   tags: string[]
   courseId?: string
   pinned: boolean
@@ -36,6 +68,10 @@ export interface Note extends Entity {
 
 export interface Reminder extends Entity {
   title: string
+  /** Everything written under the title. A dated line typed in the editor keeps its body here. */
+  body?: string
+  /** The body before the last edit, so a last-write-wins clobber is recoverable. */
+  bodyPrev?: string
   noteId?: string
   /** When it is due. For all-day reminders, the time of day to alert on the due day. */
   dueAt: number

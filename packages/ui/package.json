@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@cairn/auth": "workspace:*",
     "@cairn/core": "workspace:*",
     "@cairn/sync": "workspace:*"
   },

@@ -56,11 +56,23 @@ export class FirestoreRepository<T extends Entity, Q> implements Repository<T, Q
   private readonly onError?: (error: unknown) => void
   private stop?: () => void
   private firstLoad?: Promise<void>
+  private markServerSynced!: () => void
+  private readonly serverReady = new Promise<void>((resolve) => (this.markServerSynced = resolve))
 
   constructor(options: FirestoreRepositoryOptions<T, Q>) {
     this.ref = collection(options.db, 'users', options.userId, options.name)
     this.matches = options.matches
     this.onError = options.onError
+  }
+
+  /**
+   * Resolves once a snapshot has come from the server rather than the cache.
+   * Until then, "not here" may only mean "not fetched yet", so nothing that
+   * writes on the strength of what is missing should run before this.
+   */
+  serverSynced(): Promise<void> {
+    void this.start()
+    return this.serverReady
   }
 
   /** Opens the listener and resolves once the first snapshot has arrived. */
@@ -84,6 +96,7 @@ export class FirestoreRepository<T extends Entity, Q> implements Repository<T, Q
           this.pending.clear()
           for (const d of snapshot.docs) if (d.metadata.hasPendingWrites) this.pending.add(d.id)
           this.notify()
+          if (!snapshot.metadata.fromCache) this.markServerSynced()
           if (!settled) {
             settled = true
             resolve()

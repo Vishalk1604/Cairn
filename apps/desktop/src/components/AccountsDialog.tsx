@@ -1,5 +1,5 @@
+import { featuresOf, owner, sources, type Account, type SourceFeatures } from '@cairn/ui'
 import { useState } from 'react'
-import { featuresOf, owner, sources, type Account, type SourceFeatures } from '../app/accounts'
 import { useCairn } from '../app/context'
 import { useModal } from '../app/useModal'
 

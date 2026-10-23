@@ -40,6 +40,12 @@ export interface Repository<T extends Entity, Q> {
   purgeTombstones(now: number): Promise<number>
   /** Ids written locally that the backend has not confirmed yet. */
   pendingChanges(): Promise<string[]>
+  /**
+   * Resolves once the backend itself has answered, not just a cache. Until
+   * then a missing item may only be one not fetched yet. Absent for a store
+   * that has no backend behind it.
+   */
+  serverSynced?(): Promise<void>
   stats(): RepositoryStats
 }
 

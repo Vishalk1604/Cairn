@@ -40,6 +40,17 @@ describe('createReminder', () => {
     expect(createReminder({ title: 'x', dueAt: NOW }, { ...ctx, id: 'classroom-123' }).id).toBe('classroom-123')
   })
 
+  it('keeps the writing under a dated line as the task body', () => {
+    const task = createReminder({ title: 'submit lab report', body: 'pages 4-9, cite the handout', dueAt: NOW }, ctx)
+    expect(task.body).toBe('pages 4-9, cite the handout')
+    expect(createReminder({ title: 't', body: '   ', dueAt: NOW }, ctx).body).toBeUndefined()
+  })
+
+  it('keeps the previous body so a clobbered edit is recoverable', () => {
+    const task = createReminder({ title: 't', body: 'v1', dueAt: NOW }, ctx)
+    expect(updateReminder(task, { body: 'v2' }, NOW + 1)).toMatchObject({ body: 'v2', bodyPrev: 'v1' })
+  })
+
   it('rejects a blank title', () => {
     expect(() => oneOff({ title: '   ' })).toThrow(/title/)
   })

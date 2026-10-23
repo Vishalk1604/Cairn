@@ -6,6 +6,8 @@ import { DAY, startOfNextLocalDay } from './time'
 
 export interface ReminderInput {
   title: string
+  /** Whatever was written under the dated line that created this. */
+  body?: string
   dueAt: number
   allDay?: boolean
   priority?: Priority
@@ -22,6 +24,7 @@ export interface ReminderInput {
 
 export interface ReminderChanges {
   title?: string
+  body?: string
   priority?: Priority
   tags?: string[]
   alertOffsets?: number[] | null
@@ -40,6 +43,7 @@ export function createReminder(input: ReminderInput, ctx: CreateContext): Remind
     createdAt: ctx.now,
     updatedAt: ctx.now,
     title: normalizeTitle(input.title),
+    body: input.body?.trim() ? input.body : undefined,
     noteId: input.noteId,
     dueAt: input.dueAt,
     allDay: input.allDay ?? false,
@@ -63,6 +67,15 @@ export function createReminder(input: ReminderInput, ctx: CreateContext): Remind
 export function updateReminder(r: Reminder, changes: ReminderChanges, now: number): Reminder {
   const next: Reminder = { ...r, updatedAt: nextStamp(r.updatedAt, now) }
   if (changes.title !== undefined) next.title = normalizeTitle(changes.title)
+  // Same clobber-recovery rule as notes: the previous text survives one
+  // last-write-wins loss, which is all the window a person needs to notice.
+  if (changes.body !== undefined) {
+    const body = changes.body.trim() ? changes.body : undefined
+    if (body !== r.body) {
+      next.body = body
+      next.bodyPrev = r.body
+    }
+  }
   if (changes.priority !== undefined) next.priority = changes.priority
   if (changes.tags !== undefined) next.tags = normalizeTags(changes.tags)
   if (changes.alertOffsets !== undefined) next.alertOffsets = normalizeOffsets(changes.alertOffsets ?? undefined)

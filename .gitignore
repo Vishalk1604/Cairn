@@ -18,6 +18,9 @@ web-build/
 # Rust / Tauri
 target/
 
+# Firebase CLI cache
+.firebase/
+
 # Cloudflare Workers
 .wrangler/
 .dev.vars

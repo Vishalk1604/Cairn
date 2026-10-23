@@ -4,6 +4,7 @@ import {
   applyWhen,
   changesFromDraft,
   draftFromReminder,
+  draftFromText,
   emptyDraft,
   fromInputs,
   inputFromDraft,
@@ -73,6 +74,17 @@ describe('drafts', () => {
     expect(saved.title).toBe('Take meds')
   })
 
+  it('carries the details under the title through an edit, and clears them when emptied', () => {
+    const r = createReminder({ title: 'Register for HackMIT', body: 'Teams of up to four', dueAt: at(2026, 9, 18, 23, 59) }, ctx)
+    expect(draftFromReminder(r).body).toBe('Teams of up to four')
+    const kept = changesFromDraft(r, { ...draftFromReminder(r), title: 'Register' })
+    expect(updateReminder(r, kept.ok ? kept.value : {}, NOW).body).toBe('Teams of up to four')
+    const cleared = changesFromDraft(r, { ...draftFromReminder(r), body: '  ' })
+    const saved = updateReminder(r, cleared.ok ? cleared.value : {}, NOW)
+    expect(saved.body).toBeUndefined()
+    expect(saved.bodyPrev).toBe('Teams of up to four')
+  })
+
   it('re-anchors the series when the schedule changes', () => {
     const r = createReminder({ title: 'Standup', dueAt: at(2026, 9, 14, 9), rrule: buildRecurrence({ freq: 'daily' }, at(2026, 9, 14, 9)) }, ctx)
     const changes = changesFromDraft(r, { ...draftFromReminder(r), time: '09:30' })
@@ -84,5 +96,16 @@ describe('drafts', () => {
     expect(draft).toMatchObject({ date: '2026-09-15', time: '09:30', repeat: 'weekdays' })
     expect(applyWhen(emptyDraft(NOW), 'every other week', NOW)).toMatchObject({ repeat: 'custom', customRule: { freq: 'weekly', interval: 2 } })
     expect(applyWhen(emptyDraft(NOW), 'whenever', NOW)).toBeNull()
+  })
+
+  it('carries a quick-add line into the full editor, schedule and all', () => {
+    expect(draftFromText('Submit lab report friday 5pm !high #dbms', NOW)).toMatchObject({
+      title: 'Submit lab report',
+      date: '2026-09-18',
+      time: '17:00',
+      priority: 'high',
+      tags: 'dbms',
+    })
+    expect(draftFromText('Call home', NOW)).toMatchObject({ title: 'Call home', date: '2026-09-14', time: '' })
   })
 })

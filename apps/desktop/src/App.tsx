@@ -1,31 +1,50 @@
 import { buildTodaySummary, urgencyOf, type Note, type Reminder } from '@cairn/core'
-import type { ReminderQuery } from '@cairn/sync'
-import { describeWorkload } from '@cairn/ui'
+import type { NoteQuery, ReminderQuery } from '@cairn/sync'
+import { ALL_FOLDER, describeWorkload, foldersOf } from '@cairn/ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCairn } from './app/context'
+import { usePinnedFolders } from './app/folders'
 import { useNow, useObserved } from './app/hooks'
 import { useAlertScheduler } from './app/useAlertScheduler'
-import { AccountBar } from './components/AccountBar'
-import { DoneList } from './components/DoneList'
+import { useWide } from './app/useWide'
+import { DoneIcon, SettingsIcon } from './components/icons'
 import { NoteEditor } from './components/NoteEditor'
-import { NoteList } from './components/NoteList'
+import { NotesView } from './components/NotesView'
 import { NotificationBanner } from './components/NotificationBanner'
 import { QuickCapture } from './components/QuickCapture'
-import { ReminderEditor } from './components/ReminderEditor'
-import { ReminderList } from './components/ReminderList'
+import { SettingsView } from './components/SettingsView'
+import { Sidebar, type Section } from './components/Sidebar'
+import { TaskPanel } from './components/TaskPanel'
+import { DoneView, TasksView } from './components/TasksView'
+import { TitleBar } from './components/TitleBar'
 
-type Tab = 'reminders' | 'notes' | 'done'
-type Editing = { kind: 'reminder'; reminder?: Reminder } | { kind: 'note'; note?: Note }
+type Editing = { kind: 'task'; reminder?: Reminder; text?: string } | { kind: 'note'; note?: Note }
 
 const ACTIVE: ReminderQuery = { status: ['pending', 'snoozed'] }
+const NOTES: NoteQuery = {}
 
+/**
+ * One window, two shapes. Small, it is a widget on the desktop: what is due,
+ * your notes, and a box to write in. Expanded, it is the full app: folders
+ * down the side, notes as a grid, and a task opening beside the list.
+ */
 export function App() {
-  const { reminders, platform } = useCairn()
+  const { reminders, notes, platform, auth } = useCairn()
   const active = useObserved(reminders, ACTIVE)
+  const allNotes = useObserved(notes, NOTES)
   const now = useNow(active)
-  const [tab, setTab] = useState<Tab>('reminders')
+  const wide = useWide()
+  const { pinned, toggle } = usePinnedFolders()
+  const folders = useMemo(() => foldersOf(allNotes, pinned), [allNotes, pinned])
+  const [section, setSection] = useState<Section>('tasks')
+  const [folder, setFolder] = useState(ALL_FOLDER)
   const [editing, setEditing] = useState<Editing | null>(null)
   const captureRef = useRef<HTMLInputElement>(null)
+
+  // A folder emptied or renamed elsewhere goes away; show everything instead.
+  useEffect(() => {
+    if (folder !== ALL_FOLDER && !folders.some((f) => f.id === folder)) setFolder(ALL_FOLDER)
+  }, [folders, folder])
 
   useEffect(() => {
     let unregister: (() => void) | undefined
@@ -36,8 +55,12 @@ export function App() {
         // an input in a hidden window cannot take the caret.
         await platform.showWindow()
         setEditing(null)
-        captureRef.current?.focus()
-        captureRef.current?.select()
+        setSection((current) => (current === 'notes' ? current : 'tasks'))
+        // After the capture box has rendered in the section just opened.
+        setTimeout(() => {
+          captureRef.current?.focus()
+          captureRef.current?.select()
+        }, 0)
       })
       .then((stop) => (cancelled ? stop() : (unregister = stop)))
     return () => {
@@ -62,70 +85,108 @@ export function App() {
 
   useAlertScheduler(active, (id) => {
     const reminder = active.find((r) => r.id === id)
-    setTab('reminders')
-    if (reminder) setEditing({ kind: 'reminder', reminder })
+    setSection('tasks')
+    if (reminder) setEditing({ kind: 'task', reminder })
   })
 
   const overdue = active.filter((r) => urgencyOf(r, now) === 'overdue').length
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'reminders', label: overdue > 0 ? `Reminders (${active.length}, ${overdue} overdue)` : `Reminders (${active.length})` },
-    { id: 'notes', label: 'Notes' },
-    { id: 'done', label: 'Done' },
-  ]
-
-  if (editing?.kind === 'note') {
-    return <NoteEditor key={editing.note?.id ?? 'new'} note={editing.note} onClose={() => setEditing(null)} />
+  const go = (next: Section) => {
+    setEditing(null)
+    setSection(next)
   }
+  const capture = <QuickCapture inputRef={captureRef} />
+
+  const view =
+    section === 'notes' ? (
+      <NotesView
+        notes={allNotes}
+        folders={folders}
+        folder={folder}
+        wide={wide}
+        capture={capture}
+        onFolder={setFolder}
+        onOpen={(note) => setEditing({ kind: 'note', note })}
+        onNew={() => setEditing({ kind: 'note' })}
+      />
+    ) : section === 'done' ? (
+      <DoneView now={now} />
+    ) : section === 'settings' ? (
+      <SettingsView />
+    ) : (
+      <TasksView
+        active={active}
+        now={now}
+        capture={capture}
+        onEdit={(reminder) => setEditing({ kind: 'task', reminder })}
+        onNew={() => setEditing({ kind: 'task' })}
+      />
+    )
 
   return (
-    <div className="app">
-      <header className="top">
-        <QuickCapture inputRef={captureRef} />
-      </header>
-      <AccountBar />
-      <NotificationBanner />
-      <nav className="tabs" role="tablist" aria-label="Views">
-        {tabs.map((t) => (
-          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-        <span className="spacer" />
-        {tab === 'reminders' && (
-          <button type="button" onClick={() => setEditing({ kind: 'reminder' })}>
-            New reminder
-          </button>
-        )}
-        {tab === 'notes' && (
-          <button
-            type="button"
-            onClick={() => {
-              // Writing happens in the composer above, not on a screen of its own.
-              captureRef.current?.focus()
-              captureRef.current?.select()
+    <div className={`shell ${wide ? 'wide' : 'widget'}`}>
+      <TitleBar wide={wide} />
+      <div className="body">
+        {wide && (
+          <Sidebar
+            section={section}
+            folder={folder}
+            folders={folders}
+            pinned={pinned}
+            taskCount={active.length}
+            overdue={overdue}
+            onSection={go}
+            onFolder={(f) => {
+              go('notes')
+              setFolder(f)
             }}
-          >
-            New note
-          </button>
-        )}
-      </nav>
-      <main role="tabpanel">
-        {tab === 'reminders' && (
-          <ReminderList
-            reminders={active}
-            now={now}
-            onEdit={(id) => {
-              const reminder = active.find((r) => r.id === id)
-              if (reminder) setEditing({ kind: 'reminder', reminder })
-            }}
+            onTogglePin={auth.status === 'synced' ? (tag) => void toggle(tag) : undefined}
           />
         )}
-        {tab === 'notes' && <NoteList onOpen={(note) => setEditing({ kind: 'note', note })} />}
-        {tab === 'done' && <DoneList now={now} />}
-      </main>
-      {editing?.kind === 'reminder' && (
-        <ReminderEditor key={editing.reminder?.id ?? 'new'} reminder={editing.reminder} now={now} onClose={() => setEditing(null)} />
-      )}
+        <main className="main">
+          {editing?.kind === 'note' ? (
+            <NoteEditor key={editing.note?.id ?? 'new'} note={editing.note} onClose={() => setEditing(null)} />
+          ) : (
+            <>
+              {!wide && <WidgetNav section={section} taskCount={active.length} overdue={overdue} onSection={go} />}
+              <NotificationBanner />
+              <div className="scroll">{view}</div>
+            </>
+          )}
+        </main>
+        {editing?.kind === 'task' && (
+          <TaskPanel
+            key={editing.reminder?.id ?? 'new'}
+            reminder={editing.reminder}
+            text={editing.text}
+            now={now}
+            onClose={() => setEditing(null)}
+          />
+        )}
+      </div>
     </div>
+  )
+}
+
+/** The widget's switcher, in place of the full app's sidebar. */
+function WidgetNav({ section, taskCount, overdue, onSection }: { section: Section; taskCount: number; overdue: number; onSection: (s: Section) => void }) {
+  return (
+    <nav className="widget-nav" aria-label="Cairn">
+      <div className="seg" role="tablist">
+        <button type="button" role="tab" aria-selected={section === 'tasks'} onClick={() => onSection('tasks')}>
+          Tasks
+          {taskCount > 0 && <span className={`seg-count ${overdue ? 'danger' : ''}`}>{overdue ? `${overdue} late` : taskCount}</span>}
+        </button>
+        <button type="button" role="tab" aria-selected={section === 'notes'} onClick={() => onSection('notes')}>
+          Notes
+        </button>
+      </div>
+      <span className="spacer" />
+      <button type="button" className={`icon ${section === 'done' ? 'on' : ''}`} aria-label="Completed" title="Completed" onClick={() => onSection('done')}>
+        <DoneIcon />
+      </button>
+      <button type="button" className={`icon ${section === 'settings' ? 'on' : ''}`} aria-label="Settings" title="Settings" onClick={() => onSection('settings')}>
+        <SettingsIcon />
+      </button>
+    </nav>
   )
 }

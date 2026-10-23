@@ -1,5 +1,7 @@
 import type { KeyValueStore } from '@cairn/sync'
-import type { PermissionState, Platform } from './types'
+import type { PermissionState } from '@cairn/ui'
+import { googleClientId, googleClientSecret } from './googleClient'
+import type { DesktopPlatform } from './types'
 
 const storage: KeyValueStore = {
   async get(key) {
@@ -12,7 +14,7 @@ const storage: KeyValueStore = {
 
 const supportsNotifications = () => typeof Notification !== 'undefined'
 
-export const webPlatform: Platform = {
+export const webPlatform: DesktopPlatform = {
   name: 'web',
   storage,
 
@@ -67,6 +69,28 @@ export const webPlatform: Platform = {
       // Nothing was ever stored.
     },
   },
+
+  async setWindowMode() {
+    // A tab is as wide as the browser makes it; the layout follows that.
+  },
+
+  async minimizeWindow() {},
+
+  async startDrag() {},
+
+  async hideWindow() {},
+
+  async openLink(url) {
+    window.open(url, '_blank', 'noopener')
+  },
+
+  autostart: null,
+
+  // A page cannot keep files in a folder; photos show in the desktop app.
+  media: null,
+
+  googleClientId,
+  googleClientSecret,
 
   async authorize() {
     throw new Error('Signing in needs the Cairn desktop app, which can listen for Google’s reply')

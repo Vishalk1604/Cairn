@@ -26,12 +26,18 @@ export const GOOGLE_SCOPES = {
   media: ['https://www.googleapis.com/auth/drive.file'],
   /** First time you open the Notifications tab. Restricted. */
   mail: ['https://www.googleapis.com/auth/gmail.readonly'],
-  /** First time you turn on Classroom. Sensitive. */
+  /**
+   * First time you turn on Classroom. Sensitive.
+   *
+   * Only what Cairn reads: courses, and your own coursework with its
+   * submission state. Announcements are never read, and the older
+   * student-submissions scope is a synonym Google collapses into
+   * coursework.me — asking for both meant the grant never contained both,
+   * so Classroom could never count as switched on.
+   */
   classroom: [
     'https://www.googleapis.com/auth/classroom.courses.readonly',
     'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
-    'https://www.googleapis.com/auth/classroom.announcements.readonly',
-    'https://www.googleapis.com/auth/classroom.student-submissions.me.readonly',
   ],
 } as const
 

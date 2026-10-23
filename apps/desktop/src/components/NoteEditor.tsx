@@ -1,4 +1,4 @@
-import type { Note } from '@cairn/core'
+import { joinBlocks, splitBody, type Attachment, type Note } from '@cairn/core'
 import {
   canRedo,
   canUndo,
@@ -11,8 +11,10 @@ import {
   undo,
   type History,
 } from '@cairn/ui'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useActions } from '../app/actions'
+import { useMediaFolder, useMediaUrl } from '../app/media'
+import { BackIcon, CheckIcon, PinIcon, RedoIcon, UndoIcon } from './icons'
 
 const AUTOSAVE_MS = 800
 
@@ -41,7 +43,14 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
   // already has tags should still put the caret in the note itself.
   const [tagsJustOpened, setTagsJustOpened] = useState(false)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const blocksRef = useRef<HTMLDivElement>(null)
   const text = history.present
+  // Photos and recordings are lines in the body that only the phone can show.
+  // Each run of writing between them gets its own field, so nothing typed
+  // here can delete one by accident.
+  const attachments = note?.attachments
+  const blocks = useMemo(() => splitBody(text.body, attachments), [text.body, attachments])
+  const hasMedia = blocks.length > 1
 
   const push = useCallback(
     (next: History<Text>, extra?: { tags?: string; pinned?: boolean }) => {
@@ -58,6 +67,8 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
   )
 
   const change = (patch: Partial<Text>) => push(recordEdit(history, { ...text, ...patch }, Date.now()))
+  const changeRun = (index: number, value: string) =>
+    change({ body: joinBlocks(blocks.map((b, i) => (i === index && b.kind === 'text' ? { ...b, text: value } : b))) })
   const stepBack = () => push(undo(history, Date.now()))
   const stepForward = () => push(redo(history, Date.now()))
 
@@ -80,6 +91,7 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
     field.focus()
     field.setSelectionRange(field.value.length, field.value.length)
     field.scrollTop = field.scrollHeight
+    if (blocksRef.current) blocksRef.current.scrollTop = blocksRef.current.scrollHeight
   }, [note])
 
   const leave = useCallback(() => void queue.save().then(onClose), [queue, onClose])
@@ -108,14 +120,14 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
     <section className="note-editor" onKeyDown={onKeyDown} aria-label={note ? 'Edit note' : 'New note'}>
       <header className="note-bar">
         <button type="button" className="icon" onClick={leave} aria-label="Back to notes" title="Back (Esc)">
-          ←
+          <BackIcon />
         </button>
         <span className="spacer" />
         <button type="button" className="icon" onClick={stepBack} disabled={!canUndo(history)} aria-label="Undo" title="Undo (Ctrl+Z)">
-          ↶
+          <UndoIcon />
         </button>
         <button type="button" className="icon" onClick={stepForward} disabled={!canRedo(history)} aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
-          ↷
+          <RedoIcon />
         </button>
         <button
           type="button"
@@ -129,10 +141,10 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
             push(history, { pinned: next })
           }}
         >
-          {pinned ? '★' : '☆'}
+          <PinIcon filled={pinned} />
         </button>
         <button type="button" className="icon" onClick={leave} aria-label="Done" title="Done (Esc)">
-          ✓
+          <CheckIcon />
         </button>
       </header>
 
@@ -162,15 +174,26 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
           </span>
         </p>
 
-        <textarea
-          ref={bodyRef}
-          className="note-body"
-          value={text.body}
-          onChange={(e) => change({ body: e.target.value })}
-          placeholder="Start typing"
-          aria-label="Note"
-          spellCheck
-        />
+        <div ref={blocksRef} className={hasMedia ? 'note-blocks with-media' : 'note-blocks'}>
+          {blocks.map((b, i) =>
+            b.kind === 'media' ? (
+              <MediaCard key={b.id} attachment={b.attachment} />
+            ) : (
+              <textarea
+                // A run is known by its place: the media around it never move here.
+                key={i}
+                ref={i === blocks.length - 1 ? bodyRef : undefined}
+                className={i === blocks.length - 1 ? 'note-body' : 'note-body note-run'}
+                rows={i === blocks.length - 1 ? undefined : Math.max(1, b.text.split('\n').length)}
+                value={b.text}
+                onChange={(e) => changeRun(i, e.target.value)}
+                placeholder={hasMedia ? undefined : 'Start typing'}
+                aria-label="Note"
+                spellCheck
+              />
+            ),
+          )}
+        </div>
 
         <footer className="note-foot">
           {showTags ? (
@@ -213,5 +236,66 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
         </footer>
       </div>
     </section>
+  )
+}
+
+function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/**
+ * A photo or recording, once it is in the media folder. Until then, a card
+ * that says why it is not here yet.
+ */
+function MediaCard({ attachment }: { attachment?: Attachment }) {
+  const folder = useMediaFolder()
+  const url = useMediaUrl(attachment)
+  const audio = attachment?.kind === 'audio'
+  const label = audio ? 'Recording' : 'Photo'
+  const length = audio && attachment.durationMs ? ` · ${duration(attachment.durationMs)}` : ''
+
+  if (url && attachment?.kind === 'image') {
+    return (
+      <figure className="note-photo">
+        <img src={url} alt="" width={attachment.width} height={attachment.height} />
+      </figure>
+    )
+  }
+  if (url && audio) {
+    return (
+      <div className="note-media">
+        <span className="note-media-glyph" aria-hidden="true">
+          ♪
+        </span>
+        <span className="note-media-label">
+          {label}
+          {length}
+        </span>
+        <audio className="note-audio" controls src={url} preload="metadata" />
+      </div>
+    )
+  }
+
+  const hint = !attachment
+    ? 'Still on its way from your phone'
+    : !folder
+      ? `Open this note in the Cairn app to ${audio ? 'play' : 'see'} it`
+      : !folder.signedIn
+        ? 'Sign in to fetch it from your Drive'
+        : !attachment.driveFileId
+          ? 'Waiting for your phone to upload it'
+          : 'Fetching it from your Drive…'
+  return (
+    <div className="note-media" role="img" aria-label={`${label}${length}. ${hint}`}>
+      <span className="note-media-glyph" aria-hidden="true">
+        {audio ? '♪' : '▣'}
+      </span>
+      <span className="note-media-label">
+        {label}
+        {length}
+      </span>
+      <span className="note-media-hint">{hint}</span>
+    </div>
   )
 }

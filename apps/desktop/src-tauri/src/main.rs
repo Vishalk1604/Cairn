@@ -3,10 +3,12 @@
 
 mod focus;
 mod icon;
+mod media;
 mod oauth;
 mod secrets;
 mod tray;
 mod urgency;
+mod window_mode;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
@@ -31,6 +33,21 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// The tray icon's click: shows Cairn, or tucks it away again if it was in
+/// front, the way the clock and volume flyouts behave. Buried under other
+/// windows, it is brought forward instead.
+pub fn toggle_main_window<R: Runtime>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let showing = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+    if showing && window_mode::was_in_front(&window) {
+        window_mode::remember(&window);
+        window_mode::persist(app);
+        let _ = window.hide();
+    } else {
+        show_main_window(app);
+    }
+}
+
 /// Raises the window and asks it to focus the capture box.
 fn quick_capture<R: Runtime>(app: &AppHandle<R>) {
     show_main_window(app);
@@ -42,6 +59,16 @@ fn show_window<R: Runtime>(app: AppHandle<R>) {
     show_main_window(&app);
 }
 
+/// Opens a web page in the default browser. Only web addresses: anything
+/// else handed to the shell could run a program.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err(format!("Not a web address: {url}"));
+    }
+    open::that(&url).map_err(|e| format!("Could not open {url}: {e}"))
+}
+
 fn main() {
     tauri::Builder::default()
         // Must be first: a second launch should surface the running window.
@@ -50,6 +77,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         // The hotkey is handled here rather than in the web view: Windows only
         // lets a process take the foreground in the moment it receives the
         // hotkey, and a round trip through JavaScript arrives too late, leaving
@@ -68,21 +96,40 @@ fn main() {
             Some(vec![AUTOSTART_FLAG]),
         ))
         .manage(oauth::Listener::default())
+        .manage(window_mode::WidgetPlace::default())
         .invoke_handler(tauri::generate_handler![
             show_window,
+            open_link,
             tray::set_tray_state,
+            tray::autostart_enabled,
+            tray::set_autostart,
+            window_mode::window_full,
+            window_mode::window_widget,
+            window_mode::window_minimize,
+            window_mode::window_hide,
             oauth::oauth_listen,
             oauth::oauth_await,
             oauth::oauth_cancel,
             secrets::secret_set,
             secrets::secret_get,
             secrets::secret_delete,
+            media::media_default_dir,
+            media::media_list,
+            media::media_write,
+            media::media_read,
+            media::media_remove,
+            media::media_move,
+            media::media_open,
         ])
         .setup(|app| {
             tray::create(app.handle())?;
             if let Err(error) = app.global_shortcut().register(quick_capture_shortcut()) {
                 // Another app owns the combination; the tray menu still works.
                 eprintln!("Could not claim Ctrl+Shift+Space: {error}");
+            }
+            // Placed before it is ever shown, so it never jumps into position.
+            if let Some(window) = app.get_webview_window("main") {
+                window_mode::to_widget(&window);
             }
             // The window starts hidden so a login launch never flashes on screen.
             if !std::env::args().any(|arg| arg == AUTOSTART_FLAG) {
@@ -91,11 +138,24 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                // Closing hides to the tray; Quit in the tray menu really exits,
-                // so reminders keep firing while the window is out of the way.
-                api.prevent_close();
-                let _ = window.hide();
+            let Some(webview) = window.app_handle().get_webview_window(window.label()) else { return };
+            match event {
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => window_mode::remember(&webview),
+                WindowEvent::Focused(focused) => {
+                    window_mode::focus_changed(&webview, *focused);
+                    if !focused {
+                        window_mode::persist(window.app_handle());
+                    }
+                }
+                WindowEvent::CloseRequested { api, .. } => {
+                    // Closing hides to the tray; Quit in the tray menu really
+                    // exits, so reminders keep firing while it is out of the way.
+                    api.prevent_close();
+                    window_mode::remember(&webview);
+                    window_mode::persist(window.app_handle());
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
