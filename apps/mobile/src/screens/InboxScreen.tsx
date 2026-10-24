@@ -1,12 +1,13 @@
-import { mailTaskId } from '@cairn/core'
-import { gmailLink, type ReminderQuery } from '@cairn/sync'
+import { inboxTaskId } from '@cairn/core'
+import type { ReminderQuery } from '@cairn/sync'
 import { formatDue } from '@cairn/ui'
 import { useEffect, useMemo, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated, { LayoutAnimationConfig, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import { openMessage } from '../platform/mail'
 import { useCairn } from '../state/context'
 import { useObserved } from '../state/hooks'
-import { dueOf, isImportant, useInbox, type InboxEntry } from '../state/inbox'
+import { dueOf, isImportant, tagsOf, useInbox, type InboxEntry } from '../state/inbox'
 import { useToast } from '../state/toast'
 import { radius, space, useColors } from '../theme'
 import { MailIcon } from '../ui/icons'
@@ -34,11 +35,12 @@ function same(a: Filter, b: Filter): boolean {
 }
 
 /**
- * Mail, sorted. With an AI key, every new email is read whole and filed:
- * Important collects what needs attention, folders such as Hackathons or
- * Jobs gather what belongs together, and the rest waits under Everything
- * else rather than vanishing. Classroom work is already in Tasks by the time
- * it shows here; a deadline in ordinary mail waits for a tap.
+ * Mail and Classroom, sorted. With an AI key, every new email, assignment
+ * and announcement is read whole and filed: Important collects what needs
+ * attention, folders such as Hackathons or Jobs gather what belongs
+ * together, and the rest waits under Everything else rather than vanishing.
+ * A deadline or a set time waits for a tap on Add as task, which puts it in
+ * Tasks at that time, with the model's tags.
  */
 export function InboxScreen({ onSettings }: { onSettings: () => void }) {
   const c = useColors()
@@ -60,7 +62,6 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
   const folders = inbox.folders.filter((f) => visible.some((e) => e.triage?.folder === f))
   const current = filter.kind === 'folder' && !folders.includes(filter.name) ? ({ kind: 'important' } as Filter) : filter
   const shown = current.kind === 'important' ? important : current.kind === 'rest' ? rest : visible.filter((e) => e.triage?.folder === current.name)
-  const upcoming = current.kind === 'important' ? inbox.classroom.filter((i) => !i.submitted && i.work.dueDate).slice(0, 30) : []
 
   const mark = (entry: InboxEntry, rule: 'important' | 'unimportant') => {
     inbox.mark(entry, rule)
@@ -142,30 +143,12 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
         {auth.status === 'error' && <Text style={[styles.hint, { color: c.danger }]}>{auth.message}</Text>}
 
         <LayoutAnimationConfig skipEntering>
-          {upcoming.length > 0 && <Text style={[styles.section, { color: c.muted }]}>Classroom</Text>}
-          {upcoming.map(({ course, work }) => (
-            <Animated.View key={work.id} entering={appear} layout={reflow}>
-              <Tap onPress={() => work.alternateLink && void Linking.openURL(work.alternateLink)} scaleTo={0.98} style={[styles.card, { backgroundColor: c.surface }]}>
-                <Text style={[styles.cardMeta, { color: c.accent }]}>{course.name}</Text>
-                <Text style={[styles.cardTitle, { color: c.fg }]} numberOfLines={2}>
-                  {work.title}
-                </Text>
-                <View style={styles.cardFoot}>
-                  <Text style={{ color: c.muted }}>{dueLabel(work, now)}</Text>
-                  <View style={styles.spacer} />
-                  <Text style={{ color: c.faint, fontSize: 13 }}>✓ In Tasks</Text>
-                </View>
-              </Tap>
-            </Animated.View>
-          ))}
-
-          {upcoming.length > 0 && shown.length > 0 && <Text style={[styles.section, { color: c.muted }]}>Mail</Text>}
           {shown.map((entry) => (
             <MailCard
               key={entry.message.id}
               entry={entry}
               showFolder={current.kind !== 'folder'}
-              added={taskIds.has(mailTaskId(entry.message))}
+              added={taskIds.has(inboxTaskId(entry.message))}
               now={now}
               onAdd={() => {
                 void inbox.addAsTask(entry).then(() => toast({ message: 'Added to Tasks' }))
@@ -176,7 +159,7 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
           ))}
         </LayoutAnimationConfig>
 
-        {!inbox.refreshing && upcoming.length + shown.length === 0 && (
+        {!inbox.refreshing && shown.length === 0 && (
           <Text style={[styles.hint, { color: c.muted }]}>
             {current.kind === 'important'
               ? 'Nothing important yet. Cairn reads new mail and Classroom work from the moment you switched them on, and lets you know when something turns up.'
@@ -191,15 +174,6 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
       </ScrollView>
     </View>
   )
-}
-
-function dueLabel(work: { dueDate?: { year: number; month: number; day: number }; dueTime?: { hours?: number; minutes?: number } }, now: number): string {
-  const date = work.dueDate!
-  const timed = work.dueTime && (work.dueTime.hours !== undefined || work.dueTime.minutes !== undefined)
-  const at = timed
-    ? Date.UTC(date.year, date.month - 1, date.day, work.dueTime!.hours ?? 0, work.dueTime!.minutes ?? 0)
-    : new Date(date.year, date.month - 1, date.day, 9).getTime()
-  return `Due ${formatDue(at, !timed, now)}`
 }
 
 function FilterChip({ label, count, on, onPress }: { label: string; count: number; on: boolean; onPress: () => void }) {
@@ -239,10 +213,19 @@ function MailCard({
   const { message, triage } = entry
   const important = isImportant(entry)
   const due = dueOf(entry)
+  const post = message.classroom
   const summary = triage?.summary ?? message.snippet
+  const tags = triage ? tagsOf(entry) : []
   return (
     <Animated.View entering={appear} exiting={fadeOut} layout={reflow}>
-      <Tap onPress={() => void Linking.openURL(gmailLink(message))} onLongPress={onHide} scaleTo={0.985} haptic="none" style={[styles.card, { backgroundColor: c.surface }]} accessibilityHint="Opens in Gmail. Long-press to hide.">
+      <Tap
+        onPress={() => void openMessage(message)}
+        onLongPress={onHide}
+        scaleTo={0.985}
+        haptic="none"
+        style={[styles.card, { backgroundColor: c.surface }]}
+        accessibilityHint={`Opens in ${post ? 'Classroom' : 'Gmail'}. Long-press to hide.`}
+      >
         <View style={styles.cardHead}>
           {showFolder && triage?.folder && (
             <View style={[styles.folder, { backgroundColor: c.accent + '22' }]}>
@@ -250,7 +233,7 @@ function MailCard({
             </View>
           )}
           <Text style={[styles.cardMeta, styles.flex, { color: c.muted }]} numberOfLines={1}>
-            {sender(message.from)} · {ago(message.receivedAt, now)}
+            {post ? `${post.kind === 'work' ? 'Classroom work' : 'Classroom'} · ${post.course}` : sender(message.from)} · {ago(message.receivedAt, now)}
           </Text>
         </View>
         <Text style={[styles.cardTitle, { color: c.fg }]} numberOfLines={2}>
@@ -262,6 +245,11 @@ function MailCard({
           </Text>
         )}
         {important && triage?.why && <Text style={[styles.why, { color: c.fg }]}>{triage.why}</Text>}
+        {tags.length > 0 && (
+          <Text style={[styles.tags, { color: c.faint }]} numberOfLines={1}>
+            {tags.map((t) => `#${t}`).join('  ')}
+          </Text>
+        )}
         {due && (
           <View style={[styles.due, { borderColor: c.accent }]}>
             <Text style={{ color: c.accent, fontWeight: '600' }} numberOfLines={1}>
@@ -302,13 +290,13 @@ const styles = StyleSheet.create({
   chipCount: { fontSize: 13, lineHeight: 18, includeFontPadding: false, fontVariant: ['tabular-nums'] },
   chipFill: { borderRadius: 16 },
   body: { paddingHorizontal: space.lg, paddingBottom: 120, gap: space.md },
-  section: { fontSize: 14, paddingTop: space.md, paddingHorizontal: space.xs },
   card: { borderRadius: radius.card + 4, padding: space.lg, gap: 6 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   cardMeta: { fontSize: 13 },
   cardTitle: { fontSize: 17, fontWeight: '700' },
   summary: { fontSize: 15, lineHeight: 21 },
   why: { fontSize: 13, fontWeight: '600' },
+  tags: { fontSize: 13 },
   folder: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
   folderText: { fontSize: 12, fontWeight: '700' },
   due: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: radius.chip, paddingHorizontal: space.md, paddingVertical: 4, marginTop: 2, maxWidth: '100%' },

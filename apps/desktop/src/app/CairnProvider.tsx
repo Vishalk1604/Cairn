@@ -50,6 +50,8 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
     const { reminders, notes } = await openLocalRepositories(platform.storage, {
       onError: (error) => console.error('Saved data could not be read; it was backed up and Cairn started fresh.', error),
     })
+    const now = Date.now()
+    await Promise.all([reminders.purgeTombstones(now), notes.purgeTombstones(now)])
     const opened: Store = { userId: 'local', reminders, notes }
     local.current = opened
     return opened
@@ -71,6 +73,11 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
         const uid = await signInToFirebase(tokens.idToken)
         const synced = await openSyncedRepositories(uid, (error) => console.error('Sync problem', error))
         await carryLocalWorkUp(platform, uid, local.current, synced)
+        // Notes thirty days in the recycle bin are deleted for good, from the
+        // cloud too, once the server has said what it holds.
+        void Promise.all([synced.notes.serverSynced(), synced.reminders.serverSynced()])
+          .then(() => Promise.all([synced.notes.purgeTombstones(Date.now()), synced.reminders.purgeTombstones(Date.now())]))
+          .catch((error: unknown) => console.error('Could not empty the recycle bin', error))
         setStore({ userId: uid, reminders: synced.reminders, notes: synced.notes, close: synced.close })
         setAuth({ status: 'synced' })
       } catch (error) {

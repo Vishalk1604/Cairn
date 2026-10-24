@@ -1,4 +1,4 @@
-import type { ClassroomDue, MailMessage } from '@cairn/core'
+import { classroomDueAt, type ClassroomDue, type MailMessage } from '@cairn/core'
 
 /**
  * Only what these calls need, typed structurally so the global fetch of
@@ -95,6 +95,7 @@ interface GmailPart {
 
 interface GmailMessage {
   id: string
+  threadId?: string
   snippet?: string
   internalDate?: string
   payload?: GmailPart & { headers?: { name: string; value: string }[] }
@@ -250,13 +251,24 @@ export async function mailSince(
     if (!page) break
   }
 
-  const messages = await inBatches(ids.slice(-40), 3, (id) => call<GmailMessage>('Gmail', fetchFn, token, `${GMAIL}/messages/${id}?format=full`))
+  const fetched = await inBatches(ids.slice(-40), 3, async (id) => {
+    try {
+      return await call<GmailMessage>('Gmail', fetchFn, token, `${GMAIL}/messages/${id}?format=full`)
+    } catch (error) {
+      // Gone between the history and the fetch — a draft that was sent, or
+      // mail deleted straight away. One missing message must not stop the rest.
+      if (error instanceof GoogleApiError && error.status === 404) return null
+      throw error
+    }
+  })
+  const messages = fetched.filter((m): m is GmailMessage => m !== null)
   return {
     cursor: next,
     messages: messages.map((m) => {
       const header = (name: string) => m.payload?.headers?.find((h) => h.name.toLowerCase() === name)?.value ?? ''
       return {
         id: m.id,
+        threadId: m.threadId,
         account,
         from: header('from'),
         subject: header('subject'),
@@ -268,9 +280,9 @@ export async function mailSince(
   }
 }
 
-/** Opens a message in Gmail itself. */
-export function gmailLink(message: Pick<MailMessage, 'id' | 'account'>): string {
-  return `https://mail.google.com/mail/u/${encodeURIComponent(message.account)}/#all/${message.id}`
+/** The conversation in Gmail. Gmail opens a conversation by its thread id; mail found before Cairn kept one falls back to the message's. */
+export function gmailLink(message: Pick<MailMessage, 'id' | 'account' | 'threadId'>): string {
+  return `https://mail.google.com/mail/u/${encodeURIComponent(message.account)}/#all/${message.threadId ?? message.id}`
 }
 
 // ---------------------------------------------------------------- Classroom
@@ -279,6 +291,9 @@ export interface Course {
   id: string
   name: string
   section?: string
+  /** RFC 3339. A new semester's classes are the newest. */
+  creationTime?: string
+  updateTime?: string
 }
 
 export interface CourseWork extends ClassroomDue {
@@ -298,30 +313,236 @@ export interface ClassroomItem {
   submitted: boolean
 }
 
+export interface Announcement {
+  id: string
+  courseId: string
+  text?: string
+  /** RFC 3339. */
+  creationTime?: string
+  alternateLink?: string
+}
+
+/** What a post can carry. Only Drive files are downloadable; links, videos and forms are not files. */
+interface Material {
+  driveFile?: { driveFile?: { id?: string; title?: string } }
+}
+
+/** One file a teacher attached, and the post it came with. */
+export interface ClassroomFile {
+  course: Course
+  post: {
+    id: string
+    kind: 'work' | 'announcement' | 'material'
+    title: string
+    /** When it was posted or last changed, whichever is later. */
+    postedAt: number
+  }
+  file: { id: string; title: string }
+}
+
+export interface ClassroomFeed {
+  work: ClassroomItem[]
+  announcements: { course: Course; announcement: Announcement }[]
+  /** Courses Classroom would not open, by name; the rest are still read. */
+  skipped: string[]
+}
+
 const CLASSROOM = 'https://classroom.googleapis.com/v1'
 
 /**
- * Every piece of work in the account's active courses, with whether it has
- * been handed in. Submission state comes from one call per course rather than
- * one per assignment, which is the difference between a handful of requests
- * and hundreds.
+ * The recent work in the account's active courses, with whether it has been
+ * handed in, and with `announcements` the recent announcements too.
+ * Submission state comes from one call per course rather than one per
+ * assignment, which is the difference between a handful of requests and
+ * hundreds. A course Classroom will not open is skipped, not fatal: one
+ * archived or odd course must not hide every other.
  */
-export async function classroomWork(token: string, fetchFn: Fetch = globalFetch()): Promise<ClassroomItem[]> {
-  const { courses = [] } = await call<{ courses?: Course[] }>('Classroom', fetchFn, token, `${CLASSROOM}/courses?studentId=me&courseStates=ACTIVE&pageSize=50`)
+export async function classroomFeed(token: string, options: { announcements?: boolean } = {}, fetchFn: Fetch = globalFetch()): Promise<ClassroomFeed> {
+  const courses = await activeCourses(token, fetchFn)
+  const skipped: string[] = []
+  let readAnnouncements = options.announcements ?? false
   const perCourse = await inBatches(courses, 4, async (course) => {
-    const [{ courseWork = [] }, { studentSubmissions = [] }] = await Promise.all([
-      call<{ courseWork?: CourseWork[] }>('Classroom', fetchFn, token, `${CLASSROOM}/courses/${course.id}/courseWork?pageSize=40&orderBy=dueDate%20desc`),
-      call<{ studentSubmissions?: { courseWorkId: string; state: string }[] }>(
-        'Classroom',
-        fetchFn,
-        token,
-        `${CLASSROOM}/courses/${course.id}/courseWork/-/studentSubmissions?userId=me&pageSize=100`,
-      ),
-    ])
-    const handedIn = new Set(studentSubmissions.filter((s) => s.state === 'TURNED_IN' || s.state === 'RETURNED').map((s) => s.courseWorkId))
-    return courseWork.map((work) => ({ course, work, submitted: handedIn.has(work.id) }))
+    try {
+      const [{ courseWork = [] }, { studentSubmissions = [] }, posted] = await Promise.all([
+        call<{ courseWork?: CourseWork[] }>('Classroom', fetchFn, token, `${CLASSROOM}/courses/${course.id}/courseWork?pageSize=40&orderBy=updateTime%20desc`),
+        call<{ studentSubmissions?: { courseWorkId: string; state: string }[] }>(
+          'Classroom',
+          fetchFn,
+          token,
+          `${CLASSROOM}/courses/${course.id}/courseWork/-/studentSubmissions?userId=me&pageSize=100`,
+        ),
+        readAnnouncements
+          ? call<{ announcements?: Announcement[] }>('Classroom', fetchFn, token, `${CLASSROOM}/courses/${course.id}/announcements?pageSize=20&orderBy=updateTime%20desc`).catch(
+              (error: unknown) => {
+                // Not granted after all: carry on with the coursework alone.
+                if (error instanceof GoogleApiError && error.missingScope) readAnnouncements = false
+                else throw error
+                return {} as { announcements?: Announcement[] }
+              },
+            )
+          : Promise.resolve({} as { announcements?: Announcement[] }),
+      ])
+      const handedIn = new Set(studentSubmissions.filter((s) => s.state === 'TURNED_IN' || s.state === 'RETURNED').map((s) => s.courseWorkId))
+      return {
+        work: courseWork.map((work) => ({ course, work, submitted: handedIn.has(work.id) })),
+        announcements: (posted.announcements ?? []).map((announcement) => ({ course, announcement })),
+      }
+    } catch (error) {
+      if (!(error instanceof GoogleApiError) || error.rateLimited || error.status === 401) throw error
+      skipped.push(course.name)
+      return { work: [], announcements: [] }
+    }
   })
-  return perCourse.flat()
+  return { work: perCourse.flatMap((c) => c.work), announcements: perCourse.flatMap((c) => c.announcements), skipped }
+}
+
+/** The courses the account is a student in, still running. */
+async function activeCourses(token: string, fetchFn: Fetch = globalFetch()): Promise<Course[]> {
+  const { courses = [] } = await call<{ courses?: Course[] }>('Classroom', fetchFn, token, `${CLASSROOM}/courses?studentId=me&courseStates=ACTIVE&pageSize=50`)
+  return courses
+}
+
+export { activeCourses as classroomCourses }
+
+/**
+ * Every Drive file attached to the recent posts of the given courses:
+ * assignments, announcements and plain materials. A course or a kind of post
+ * Classroom will not open is skipped, as with the feed.
+ */
+export async function classroomFiles(
+  token: string,
+  courses: readonly Course[],
+  fetchFn: Fetch = globalFetch(),
+): Promise<{ files: ClassroomFile[]; skipped: string[] }> {
+  type Post = { id: string; title?: string; text?: string; creationTime?: string; updateTime?: string; materials?: Material[] }
+  const skipped: string[] = []
+  const missing = new Set<string>()
+  const list = async (course: Course, path: string, key: string): Promise<Post[]> => {
+    if (missing.has(path)) return []
+    try {
+      const body = await call<Record<string, Post[] | undefined>>('Classroom', fetchFn, token, `${CLASSROOM}/courses/${course.id}/${path}?pageSize=40&orderBy=updateTime%20desc`)
+      return body[key] ?? []
+    } catch (error) {
+      // A kind of post this grant does not cover: leave it out everywhere, quietly.
+      if (error instanceof GoogleApiError && error.missingScope) {
+        missing.add(path)
+        return []
+      }
+      throw error
+    }
+  }
+  const perCourse = await inBatches(courses, 3, async (course) => {
+    try {
+      const [work, announcements, materials] = await Promise.all([
+        list(course, 'courseWork', 'courseWork'),
+        list(course, 'announcements', 'announcements'),
+        list(course, 'courseWorkMaterials', 'courseWorkMaterial'),
+      ])
+      const found: ClassroomFile[] = []
+      for (const [kind, posts] of [
+        ['work', work],
+        ['announcement', announcements],
+        ['material', materials],
+      ] as const) {
+        for (const post of posts) {
+          const postedAt = Math.max(Date.parse(post.creationTime ?? '') || 0, Date.parse(post.updateTime ?? '') || 0)
+          const title = post.title ?? post.text?.split('\n').find((line) => line.trim())?.trim().slice(0, 80) ?? 'Announcement'
+          for (const material of post.materials ?? []) {
+            const file = material.driveFile?.driveFile
+            if (file?.id) found.push({ course, post: { id: post.id, kind, title, postedAt }, file: { id: file.id, title: file.title ?? 'Untitled' } })
+          }
+        }
+      }
+      return found
+    } catch (error) {
+      if (!(error instanceof GoogleApiError) || error.rateLimited || error.status === 401) throw error
+      skipped.push(course.name)
+      return []
+    }
+  })
+  return { files: perCourse.flat(), skipped }
+}
+
+/** What Drive says about a file, enough to decide whether and how to download it. */
+export interface DriveFileInfo {
+  id: string
+  name: string
+  mimeType: string
+  /** Bytes. Absent for Google Docs, Sheets and Slides, which have no file until exported. */
+  size?: number
+  /** False when the owner turned off downloading for viewers. */
+  canDownload: boolean
+}
+
+export async function driveFileInfo(token: string, fileId: string, fetchFn: Fetch = globalFetch()): Promise<DriveFileInfo> {
+  const info = await call<{ id: string; name?: string; mimeType?: string; size?: string; capabilities?: { canDownload?: boolean } }>(
+    'Drive',
+    fetchFn,
+    token,
+    `${DRIVE}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,capabilities(canDownload)&supportsAllDrives=true`,
+  )
+  return {
+    id: info.id,
+    name: info.name ?? 'Untitled',
+    mimeType: info.mimeType ?? 'application/octet-stream',
+    size: info.size === undefined ? undefined : Number(info.size),
+    canDownload: info.capabilities?.canDownload !== false,
+  }
+}
+
+/**
+ * A file's bytes, exported to `exportAs` when it is a Google Doc, Sheet or
+ * Slides, which have no file of their own to download.
+ */
+export async function driveFetch(
+  token: string,
+  fileId: string,
+  exportAs?: string,
+  fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<Awaited<ReturnType<Fetch>> & { arrayBuffer(): Promise<ArrayBuffer> }> = globalFetch() as never,
+): Promise<ArrayBuffer> {
+  const id = encodeURIComponent(fileId)
+  const url = exportAs ? `${DRIVE}/files/${id}/export?mimeType=${encodeURIComponent(exportAs)}` : `${DRIVE}/files/${id}?alt=media&supportsAllDrives=true`
+  const response = await fetchFn(url, { headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok) await call('Drive', async () => response, token, '')
+  return response.arrayBuffer()
+}
+
+/** New coursework, as the inbox reads it. */
+export function courseWorkMessage(item: ClassroomItem, account: string): MailMessage {
+  const { course, work } = item
+  return {
+    id: `classroom-work-${work.id}`,
+    account,
+    from: course.name,
+    subject: work.title,
+    snippet: (work.description ?? '').slice(0, 200),
+    text: work.description,
+    receivedAt: Date.parse(work.creationTime ?? '') || Date.now(),
+    classroom: {
+      kind: 'work',
+      courseId: course.id,
+      course: course.name,
+      workId: work.id,
+      due: classroomDueAt(work) ?? undefined,
+      link: work.alternateLink,
+    },
+  }
+}
+
+/** A new announcement, as the inbox reads it. */
+export function announcementMessage(course: Course, announcement: Announcement, account: string): MailMessage {
+  const text = announcement.text ?? ''
+  const firstLine = text.split('\n').find((line) => line.trim())?.trim() ?? 'Announcement'
+  return {
+    id: `classroom-announcement-${announcement.id}`,
+    account,
+    from: course.name,
+    subject: firstLine.length > 90 ? `${firstLine.slice(0, 87)}…` : firstLine,
+    snippet: text.slice(0, 200),
+    text,
+    receivedAt: Date.parse(announcement.creationTime ?? '') || Date.now(),
+    classroom: { kind: 'announcement', courseId: course.id, course: course.name, link: announcement.alternateLink },
+  }
 }
 
 // ---------------------------------------------------------------- Drive
@@ -376,6 +597,29 @@ export async function startDriveUpload(
 
 export function driveDownloadUrl(fileId: string): string {
   return `${DRIVE}/files/${encodeURIComponent(fileId)}?alt=media`
+}
+
+/** A file's bytes, or the GoogleApiError saying why Drive would not hand them over. */
+export async function driveDownload(
+  token: string,
+  fileId: string,
+  fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<Awaited<ReturnType<Fetch>> & { arrayBuffer(): Promise<ArrayBuffer> }> = globalFetch() as never,
+): Promise<ArrayBuffer> {
+  const response = await fetchFn(driveDownloadUrl(fileId), { headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok) await call('Drive', async () => response, token, '')
+  return response.arrayBuffer()
+}
+
+/**
+ * Moves a file to Drive's trash, or back out of it. Drive empties its trash
+ * after thirty days on its own, the same time a note spends in Cairn's bin.
+ */
+export async function setDriveTrashed(token: string, fileId: string, trashed: boolean, fetchFn: Fetch = globalFetch()): Promise<void> {
+  await call('Drive', fetchFn, token, `${DRIVE}/files/${encodeURIComponent(fileId)}?fields=id`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trashed }),
+  })
 }
 
 /** For tests: forgets the cached folder id. */

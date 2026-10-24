@@ -34,6 +34,13 @@ export function tombstone<T extends Entity>(entity: T, now: number): T {
   return { ...entity, deletedAt: now, updatedAt: nextStamp(entity.updatedAt, now) }
 }
 
+/** Brings a tombstone back, stamped later than its deletion so last-write-wins keeps it. */
+export function revive<T extends Entity>(entity: T, now: number): T {
+  if (entity.deletedAt === undefined) return entity
+  const { deletedAt: _deletedAt, ...alive } = entity
+  return { ...alive, updatedAt: nextStamp(entity.updatedAt, now) } as T
+}
+
 /**
  * Last-write-wins by updatedAt. Ties break deterministically (deletion wins,
  * then the lexically larger serialization) so every device converges on the

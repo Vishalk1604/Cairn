@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalFolder, MAX_FOLDERS, parseDue, readTriage, senderAddress, triagePrompt, type MailMessage } from '../src'
+import { canonicalFolder, canonicalTags, DEFAULT_PROFILE, MAX_FOLDERS, parseDue, readTriage, senderAddress, triagePrompt, type MailMessage } from '../src'
 import { at, NOW, show } from './helpers'
 
 const message: MailMessage = {
@@ -28,6 +28,26 @@ describe('triagePrompt', () => {
     expect(triagePrompt(message, { now: NOW, folders: many }).user).toContain('use one of these, or null')
   })
 
+  it('says what matters to the person, their own words or the default', () => {
+    expect(triagePrompt(message, { now: NOW, folders: [] }).user).toContain(`What matters to me: ${DEFAULT_PROFILE}`)
+    expect(triagePrompt(message, { now: NOW, folders: [], profile: '  Only hackathons\n and SIH. ' }).user).toContain('What matters to me: Only hackathons and SIH.')
+  })
+
+  it('names a Classroom post as one, with its own due date in the format replies use', () => {
+    const post: MailMessage = {
+      ...message,
+      id: 'classroom-work-w1',
+      from: 'CS301 DBMS',
+      subject: 'Lab 4',
+      classroom: { kind: 'work', courseId: 'c1', course: 'CS301 DBMS', workId: 'w1', due: { dueAt: at(2026, 9, 18, 23, 59), allDay: false } },
+    }
+    const { user } = triagePrompt(post, { now: NOW, folders: [] })
+    expect(user).toContain('Source: Google Classroom, new coursework in the course "CS301 DBMS"')
+    expect(user).toContain('Classroom due date: 2026-09-18T23:59')
+    expect(user).toContain('Title: Lab 4')
+    expect(user).not.toContain('From:')
+  })
+
   it('falls back to the snippet when the body was not fetched', () => {
     const { user } = triagePrompt({ ...message, text: undefined }, { now: NOW, folders: [] })
     expect(user.endsWith('Register before…')).toBe(true)
@@ -46,6 +66,22 @@ describe('readTriage', () => {
     expect(triage?.task?.title).toBe('Register for HackMIT')
     expect(show(triage?.task?.dueAt)).toBe(show(at(2026, 9, 18, 23, 59)))
     expect(triage?.task?.allDay).toBe(false)
+  })
+
+  it('reads tags as Cairn writes them', () => {
+    const triage = readTriage(reply({ important: true, folder: 'Hackathons', tags: ['#Hackathon', 'Smart India Hackathon', 'SHI', 'shi', 'x_y'], summary: 'SIH.' }), context)
+    expect(triage?.tags).toEqual(['hackathon', 'smart-india-hackathon', 'shi', 'x-y'])
+    expect(canonicalTags('hackathon')).toEqual([])
+    expect(canonicalTags(['', 'null', 42, 'Internship'])).toEqual(['internship'])
+  })
+
+  it('keeps Classroom’s own due date over the model’s, and always counts coursework as important', () => {
+    const due = { dueAt: at(2026, 9, 20, 18, 30), allDay: false }
+    const post = { subject: 'Lab 4', classroom: { kind: 'work' as const, courseId: 'c1', course: 'DBMS', workId: 'w1', due } }
+    const triage = readTriage(reply({ important: false, summary: 'Lab 4 is due.', task: { title: 'Submit Lab 4', due: '2026-09-19' } }), context, post)
+    expect(triage).toMatchObject({ important: true, task: { title: 'Submit Lab 4', ...due } })
+    const untitled = readTriage(reply({ important: true, summary: 'Lab 4 is due.', task: null }), context, post)
+    expect(untitled?.task).toEqual({ title: 'Lab 4', ...due })
   })
 
   it('finds the JSON inside thinking, code fences and prose', () => {

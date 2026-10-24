@@ -1,4 +1,4 @@
-import type { Entity } from '@cairn/core'
+import { purgeableTombstones, type Entity } from '@cairn/core'
 import type { Repository, Unsubscribe } from './repository'
 
 /** A remote store that can say when it has heard from the server. */
@@ -18,6 +18,10 @@ export interface RemoteRepository<T extends Entity, Q> extends Repository<T, Q> 
  *
  * Conflicts need no special handling: both stores merge last-write-wins on
  * the stamp every edit carries, so whichever side wrote last wins on both.
+ *
+ * Tombstones past their thirty days travel neither way. The cloud deletes
+ * them for good, and a phone that was offline meanwhile must not put them
+ * back.
  */
 export function replicate<T extends Entity, Q>(
   local: Repository<T, Q>,
@@ -34,9 +38,12 @@ export function replicate<T extends Entity, Q>(
   let again = false
   let stopped = false
 
+  const expired = (items: readonly T[]): Set<T> => new Set(purgeableTombstones(items, Date.now()))
+
   const stopRemote = remote.observe(everything, (items) => {
     for (const item of items) cloud.set(item.id, Math.max(cloud.get(item.id) ?? -Infinity, item.updatedAt))
-    void local.upsertMany(items)
+    const gone = expired(items)
+    void local.upsertMany(gone.size ? items.filter((item) => !gone.has(item)) : items)
   })
 
   const push = async (): Promise<void> => {
@@ -52,7 +59,10 @@ export function replicate<T extends Entity, Q>(
     try {
       do {
         again = false
-        const ahead = (await local.list(everything))
+        const mine = await local.list(everything)
+        const gone = expired(mine)
+        const ahead = mine
+          .filter((item) => !gone.has(item))
           .filter((item) => item.updatedAt > (cloud.get(item.id) ?? -Infinity) || item.userId !== userId)
           .map((item) => (item.userId === userId ? item : { ...item, userId }))
         if (ahead.length === 0) continue

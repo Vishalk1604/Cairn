@@ -8,7 +8,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, onAction, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { load, type Store } from '@tauri-apps/plugin-store'
 import { googleClientId, googleClientSecret } from './googleClient'
-import type { DesktopMedia, DesktopPlatform } from './types'
+import type { DesktopClassroom, DesktopMedia, DesktopPlatform } from './types'
 
 /** Raised by the shell for the hotkey and the tray menu item. */
 const QUICK_CAPTURE_EVENT = 'cairn://quick-capture'
@@ -62,6 +62,17 @@ const media: DesktopMedia = {
   read: (folder, name) => invoke<ArrayBuffer>('media_read', { dir: folder, name }),
   remove: (folder, name) => invoke('media_remove', { dir: folder, name }),
   move: (from, to) => invoke<number>('media_move', { from, to }),
+  open: (folder) => invoke('media_open', { dir: folder }),
+}
+
+const classroom: DesktopClassroom = {
+  defaultFolder: () => invoke<string>('classroom_default_dir'),
+  async pickFolder(current) {
+    const picked = await openDialog({ directory: true, defaultPath: current, title: 'Where should Cairn save files from Classroom?' })
+    return typeof picked === 'string' ? picked : null
+  },
+  write: (folder, path, bytes) =>
+    invoke<string>('classroom_write', bytes, { headers: { 'x-dir': encodeURIComponent(folder), 'x-path': encodeURIComponent(path) } }),
   open: (folder) => invoke('media_open', { dir: folder }),
 }
 
@@ -143,6 +154,7 @@ export const tauriPlatform: DesktopPlatform = {
   },
 
   media,
+  classroom,
 
   googleClientId,
   googleClientSecret,

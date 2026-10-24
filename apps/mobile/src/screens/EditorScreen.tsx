@@ -17,6 +17,7 @@ import {
   createNoteSaveQueue,
   edit as recordEdit,
   formatDue,
+  keepNoteDraft,
   noteCharacterCount,
   noteTimestamp,
   redo,
@@ -30,6 +31,7 @@ import Animated, { useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withRe
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AudioBlock, ImageBlock } from '../components/MediaBlocks'
 import { formatDuration, keepRecording, pickImage, prepareToRecord } from '../platform/media'
+import { storage } from '../platform/storage'
 import { useActions } from '../state/actions'
 import { useCairn } from '../state/context'
 import { foldersOf, folderTag, isRealFolder, usePinnedFolders } from '../state/folders'
@@ -40,7 +42,8 @@ import { radius, space, useColors } from '../theme'
 import { CameraIcon, FolderIcon, Glyph, ImageIcon, MicIcon, TrashIcon } from '../ui/icons'
 import { appear, duration, fadeIn, fadeOut, feel, sheetIn, sheetOut, Tap } from '../ui/motion'
 
-const AUTOSAVE_MS = 700
+/** How long typing pauses before the words are written down on the phone. */
+const DRAFT_MS = 700
 const ALL: NoteQuery = {}
 
 /** What undo and redo step through. The body is the serialized form, markers and all. */
@@ -153,29 +156,45 @@ export function EditorScreen({ note, folder, onClose }: { note?: Note; folder?: 
     return true
   }, [values, queue])
 
-  // Drafts autosave as notes. A draft that has turned into a task waits for
-  // the way out instead, so it never flickers into the notes grid first.
+  /** Writes the note (and so the cloud copy) once, and forgets the draft it no longer needs. */
+  const saveNow = useCallback(async () => {
+    await queue.save()
+    if (queue.dirty) return
+    void keepNoteDraft(storage, null)
+    if (queue.saved) setSavedAt(queue.saved.updatedAt)
+  }, [queue])
+
+  // Typing is kept on the phone only; the note itself is saved on the way
+  // out, so a long note costs the cloud one write, not one per pause. A draft
+  // that has turned into a task is not kept as a note at all. The pending
+  // flag outlives re-renders, which would otherwise cancel the timer before
+  // it fired.
+  const draftPending = useRef(false)
   useEffect(() => {
-    if (willBeTask || !stage()) return
+    if (willBeTask) return
+    if (stage()) draftPending.current = true
+    if (!draftPending.current) return
     const timer = setTimeout(() => {
-      void queue.save().then(() => queue.saved && setSavedAt(queue.saved.updatedAt))
-    }, AUTOSAVE_MS)
+      draftPending.current = false
+      // Saved meanwhile: there is nothing left to keep.
+      if (queue.dirty) void keepNoteDraft(storage, { noteId: queue.saved?.id ?? note?.id, values: values(), at: Date.now() })
+    }, DRAFT_MS)
     return () => clearTimeout(timer)
-  }, [stage, willBeTask, queue])
+  }, [stage, willBeTask, queue, note, values])
 
   // Leaving the app is as good as leaving the note: the person may never come back to it.
-  const latest = useRef({ stage, willBeTask })
-  latest.current = { stage, willBeTask }
+  const latest = useRef({ stage, willBeTask, saveNow })
+  latest.current = { stage, willBeTask, saveNow }
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' || latest.current.willBeTask) return
       latest.current.stage()
-      void queue.save()
+      void latest.current.saveNow()
     })
     return () => {
       sub.remove()
-      // Closed some other way than the buttons, mid-autosave: write what is pending.
-      if (!leaving.current && queue.dirty) void queue.save()
+      // Closed some other way than the buttons: write what is pending.
+      if (!leaving.current && queue.dirty) void latest.current.saveNow()
     }
   }, [queue])
 
@@ -214,14 +233,15 @@ export function EditorScreen({ note, folder, onClose }: { note?: Note; folder?: 
         // A draft saved before the date was typed becomes the task, not a twin of it.
         if (queue.saved) await notes.remove(queue.saved.id, Date.now())
         await actions.capture({ title: head, body: rest.trim() ? rest : undefined })
+        void keepNoteDraft(storage, null)
       } else {
         stage()
-        await queue.save()
+        await saveNow()
       }
     } finally {
       onClose()
     }
-  }, [willBeTask, queue, notes, actions, head, rest, stage, onClose])
+  }, [willBeTask, queue, notes, actions, head, rest, stage, saveNow, onClose])
   leaveRef.current = () => void leave()
 
   const setRun = (index: number, value: string) => {
@@ -307,6 +327,7 @@ export function EditorScreen({ note, folder, onClose }: { note?: Note; folder?: 
         {note && (
           <IconTap label="Delete note" onPress={async () => {
             leaving.current = true
+            void keepNoteDraft(storage, null)
             await actions.removeNote(queue.saved ?? note)
             onClose()
           }}>

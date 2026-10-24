@@ -8,6 +8,7 @@ import {
   parseCapture,
   reopenReminder,
   rescheduleReminder,
+  revive,
   skipOccurrence,
   snoozeReminder,
   updateNote,
@@ -24,6 +25,7 @@ import {
 } from '@cairn/core'
 import type { NoteRepository, ReminderRepository, Repository } from '@cairn/sync'
 import { formatDue } from './format'
+import { noteHeading } from './noteMeta'
 
 export interface Toast {
   message: string
@@ -172,7 +174,15 @@ export function createActions({ reminders, notes, userId, toast, now = Date.now,
       run(async () => {
         const deleted = deleteNote(n, now())
         await notes.upsert(deleted)
-        toast({ message: `Deleted note “${n.title || 'Untitled'}”`, action: { label: 'Undo', run: restore(notes, n, deleted) } })
+        toast({ message: `Moved “${noteHeading(n)}” to the recycle bin`, action: { label: 'Undo', run: restore(notes, n, deleted) } })
+      }),
+    /** Takes a note back out of the recycle bin, photos and all. */
+    restoreNote: (n: Note) =>
+      run(async () => {
+        const alive = revive(n, now())
+        await notes.upsert(alive)
+        toast({ message: `Restored “${noteHeading(n)}”` })
+        return alive
       }),
   }
 }

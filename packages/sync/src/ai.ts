@@ -323,7 +323,7 @@ export async function triageMail(
     ],
     options,
   )
-  const triage = readTriage(content, context)
+  const triage = readTriage(content, context, message)
   return triage && { ...triage, model: model.label }
 }
 

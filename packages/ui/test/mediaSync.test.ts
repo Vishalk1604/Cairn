@@ -1,6 +1,6 @@
 import { createNote, markerLine, type Attachment } from '@cairn/core'
 import { describe, expect, it } from 'vitest'
-import { planMediaSync } from '../src'
+import { planDriveTrash, planMediaSync } from '../src'
 
 const ctx = { userId: 'u', now: 1 }
 const photo = (id: string, extra: Partial<Attachment> = {}): Attachment => ({ id, kind: 'image', mime: 'image/jpeg', bytes: 100, createdAt: 1, driveFileId: `d-${id}`, ...extra })
@@ -35,5 +35,35 @@ describe('planMediaSync', () => {
   it('keeps a file whose note has not uploaded it, rather than throwing away the only copy', () => {
     const plan = planMediaSync([noteWith(photo('a', { driveFileId: undefined }))], [{ name: 'a.jpg', bytes: 100 }])
     expect(plan.remove).toEqual([])
+  })
+})
+
+describe('planDriveTrash', () => {
+  it('trashes the files of a note in the recycle bin, once', () => {
+    const binned = { ...noteWith(photo('t')), deletedAt: 5 }
+    const plan = planDriveTrash([noteWith(photo('a')), binned], {}, new Set())
+    expect(plan).toEqual({ trash: ['d-t'], restore: [], forget: [] })
+    expect(planDriveTrash([binned], {}, new Set(['d-t'])).trash).toEqual([])
+  })
+
+  it('brings a file back when its note leaves the bin', () => {
+    expect(planDriveTrash([noteWith(photo('t'))], {}, new Set(['d-t']))).toEqual({ trash: [], restore: ['d-t'], forget: [] })
+  })
+
+  it('trashes a file this phone sent once no note mentions it, then forgets it', () => {
+    const uploaded = { a: 'd-a', gone: 'd-gone' }
+    expect(planDriveTrash([noteWith(photo('a'))], uploaded, new Set()).trash).toEqual(['d-gone'])
+    expect(planDriveTrash([noteWith(photo('a'))], uploaded, new Set(['d-gone'])).forget).toEqual(['d-gone'])
+  })
+
+  it('never trashes a file a live note still uses, even when a copy of it is in the bin', () => {
+    const shared = photo('s')
+    const binned = { ...noteWith(shared), id: 'other', deletedAt: 5 }
+    expect(planDriveTrash([noteWith(shared), binned], {}, new Set()).trash).toEqual([])
+  })
+
+  it('uses the Drive id this phone remembers when the note has not caught up', () => {
+    const binned = { ...noteWith(photo('t', { driveFileId: undefined })), deletedAt: 5 }
+    expect(planDriveTrash([binned], { t: 'd-t' }, new Set()).trash).toEqual(['d-t'])
   })
 })

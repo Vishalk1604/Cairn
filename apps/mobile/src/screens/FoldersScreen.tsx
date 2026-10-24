@@ -1,6 +1,4 @@
-import { nextStamp, type Note } from '@cairn/core'
 import type { NoteQuery } from '@cairn/sync'
-import { noteHeading } from '@cairn/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { BackHandler, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated'
@@ -10,10 +8,10 @@ import { useObserved } from '../state/hooks'
 import { useToast } from '../state/toast'
 import { radius, space, useColors } from '../theme'
 import { Glyph, PinIcon, TrashIcon } from '../ui/icons'
-import { appear, fadeIn, fadeOut, reflow, sheetIn, sheetOut, Tap } from '../ui/motion'
+import { appear, fadeIn, reflow, sheetIn, sheetOut, Tap } from '../ui/motion'
+import { RecycleBinScreen } from './RecycleBinScreen'
 
 const ALL: NoteQuery = {}
-const WITH_DELETED: NoteQuery = { includeDeleted: true }
 
 /**
  * Folders are tags, so a new folder exists by being pinned until something is
@@ -71,7 +69,7 @@ export function FoldersScreen({ current, onBack, onPick }: { current: string; on
     }
   }
 
-  if (trash) return <RecentlyDeleted onBack={() => setTrash(false)} />
+  if (trash) return <RecycleBinScreen onBack={() => setTrash(false)} />
 
   return (
     <View style={[styles.screen, { backgroundColor: c.bg }]}>
@@ -91,7 +89,7 @@ export function FoldersScreen({ current, onBack, onPick }: { current: string; on
             <Glyph char="←" color={c.fg} />
           </Tap>
           <Text style={[styles.title, { color: c.fg }]}>Folders</Text>
-          <Tap onPress={() => setTrash(true)} scaleTo={0.92} style={styles.icon} accessibilityLabel="Recently deleted">
+          <Tap onPress={() => setTrash(true)} scaleTo={0.92} style={styles.icon} accessibilityLabel="Recycle bin">
             <TrashIcon color={c.fg} />
           </Tap>
         </View>
@@ -222,52 +220,6 @@ function Action({ label, icon, onPress, disabled }: { label: string; icon: React
   )
 }
 
-/**
- * Deleted notes are tombstones for thirty days before they are purged, so
- * this list costs nothing extra: it is the same records, still on the phone.
- */
-function RecentlyDeleted({ onBack }: { onBack: () => void }) {
-  const c = useColors()
-  const toast = useToast()
-  const { notes } = useCairn()
-  const everything = useObserved(notes, WITH_DELETED)
-  const deleted = everything.filter((n) => n.deletedAt !== undefined).sort((a, b) => b.deletedAt! - a.deletedAt!)
-
-  const restore = async (n: Note) => {
-    const { deletedAt: _gone, ...alive } = n
-    await notes.upsert({ ...alive, updatedAt: nextStamp(n.updatedAt, Date.now()) })
-    toast({ message: `Restored “${noteHeading(n)}”` })
-  }
-
-  return (
-    <View style={[styles.screen, { backgroundColor: c.bg }]}>
-      <View style={styles.bar}>
-        <Tap onPress={onBack} scaleTo={0.92} style={styles.icon} accessibilityLabel="Back to folders">
-          <Glyph char="←" color={c.fg} />
-        </Tap>
-        <Text style={[styles.title, { color: c.fg }]}>Recently deleted</Text>
-        <View style={styles.icon} />
-      </View>
-      <ScrollView contentContainerStyle={styles.body}>
-        <Text style={[styles.hint, { color: c.faint }]}>Deleted notes are kept here for 30 days.</Text>
-        {deleted.length === 0 && <Text style={[styles.hint, { color: c.muted, paddingTop: 60 }]}>Nothing deleted recently.</Text>}
-        {deleted.map((n) => (
-          <Animated.View key={n.id} exiting={fadeOut} layout={reflow}>
-            <View style={[styles.row, { backgroundColor: c.surface }]}>
-              <Text style={[styles.name, { color: c.fg }]} numberOfLines={1}>
-                {noteHeading(n)}
-              </Text>
-              <Tap onPress={() => void restore(n)} scaleTo={0.94} style={[styles.restore, { borderColor: c.accent }]}>
-                <Text style={{ color: c.accent, fontWeight: '600' }}>Restore</Text>
-              </Tap>
-            </View>
-          </Animated.View>
-        ))}
-      </ScrollView>
-    </View>
-  )
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   bar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, paddingTop: space.sm, height: 60 },
@@ -291,6 +243,5 @@ const styles = StyleSheet.create({
   dialogInput: { borderRadius: 12, paddingHorizontal: space.lg, paddingVertical: space.md, fontSize: 17 },
   dialogButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: space.lg },
   dialogButton: { paddingHorizontal: space.md, paddingVertical: space.sm },
-  restore: { borderWidth: 1, borderRadius: 16, paddingHorizontal: space.md, paddingVertical: 6 },
   hint: { textAlign: 'center', fontSize: 14 },
 })

@@ -1,7 +1,8 @@
 import { buildTodaySummary, urgencyOf, type Note, type Reminder } from '@cairn/core'
 import type { NoteQuery, ReminderQuery } from '@cairn/sync'
-import { ALL_FOLDER, describeWorkload, foldersOf } from '@cairn/ui'
+import { ALL_FOLDER, describeWorkload, foldersOf, recoverNoteDraft } from '@cairn/ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useActions } from './app/actions'
 import { useCairn } from './app/context'
 import { usePinnedFolders } from './app/folders'
 import { useNow, useObserved } from './app/hooks'
@@ -40,6 +41,16 @@ export function App() {
   const [folder, setFolder] = useState(ALL_FOLDER)
   const [editing, setEditing] = useState<Editing | null>(null)
   const captureRef = useRef<HTMLInputElement>(null)
+  const actions = useActions()
+
+  // A note being written when Cairn was closed is saved now, once, into
+  // whichever store this session settles on.
+  const recovered = useRef(false)
+  useEffect(() => {
+    if (recovered.current || auth.status === 'loading' || auth.status === 'connecting') return
+    recovered.current = true
+    void recoverNoteDraft(platform.storage, notes, actions)
+  }, [auth.status, platform, notes, actions])
 
   // A folder emptied or renamed elsewhere goes away; show everything instead.
   useEffect(() => {

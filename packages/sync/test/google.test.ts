@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { classroomWork, decodeBase64Url, GoogleApiError, mailCursor, MailCursorExpired, mailSince, resetDriveFolder, startDriveUpload, type Fetch } from '../src'
+import {
+  announcementMessage,
+  classroomFiles,
+  classroomFeed,
+  courseWorkMessage,
+  decodeBase64Url,
+  gmailLink,
+  GoogleApiError,
+  mailCursor,
+  MailCursorExpired,
+  mailSince,
+  resetDriveFolder,
+  setDriveTrashed,
+  startDriveUpload,
+  type Fetch,
+} from '../src'
 
 type Route = (url: string, init?: Parameters<Fetch>[1]) => { status?: number; body?: unknown; headers?: Record<string, string> }
 
@@ -99,6 +114,21 @@ describe('incremental mail', () => {
     expect(messages[0]?.text).toBe(['Hi Vishal,', '• Apply by 1 Dec', 'Thanks & regards'].join('\n\n'))
   })
 
+  it('skips a message deleted before it could be fetched, and keeps the rest', async () => {
+    const { fetchFn } = fakeFetch([
+      [
+        '/history?',
+        () => ({ body: { historyId: '960', history: [{ messagesAdded: [{ message: { id: 'gone', labelIds: ['INBOX'] } }, { message: { id: 'a', labelIds: ['INBOX'] } }] }] } }),
+      ],
+      ['/messages/gone', () => ({ status: 404, body: { error: { code: 404, message: 'Requested entity was not found.' } } })],
+      ['/messages/a', () => ({ body: { ...message, threadId: 't1' } })],
+    ])
+    const { messages, cursor } = await mailSince('token', 'me@uni.edu', '900', fetchFn)
+    expect(cursor).toBe('960')
+    expect(messages.map((m) => [m.id, m.threadId])).toEqual([['a', 't1']])
+    expect(gmailLink(messages[0]!)).toBe('https://mail.google.com/mail/u/me%40uni.edu/#all/t1')
+  })
+
   it('says when the cursor is too old to continue from', async () => {
     const { fetchFn } = fakeFetch([['/history?', () => ({ status: 404, body: { error: { message: 'Requested entity was not found.' } } })]])
     await expect(mailSince('token', 'me', '1', fetchFn)).rejects.toBeInstanceOf(MailCursorExpired)
@@ -124,18 +154,97 @@ describe('incremental mail', () => {
   })
 })
 
-describe('classroomWork', () => {
+describe('classroomFeed', () => {
   it('pairs each assignment with whether it has been handed in', async () => {
-    const { fetchFn } = fakeFetch([
+    const { fetchFn, calls } = fakeFetch([
       ['/studentSubmissions', () => ({ body: { studentSubmissions: [{ courseWorkId: 'w1', state: 'TURNED_IN' }, { courseWorkId: 'w2', state: 'CREATED' }] } })],
       ['/courseWork?', () => ({ body: { courseWork: [{ id: 'w1', courseId: 'c1', title: 'Essay' }, { id: 'w2', courseId: 'c1', title: 'Quiz' }] } })],
       ['/courses?', () => ({ body: { courses: [{ id: 'c1', name: 'History' }] } })],
     ])
-    const items = await classroomWork('token', fetchFn)
-    expect(items.map((i) => [i.work.title, i.submitted])).toEqual([
+    const feed = await classroomFeed('token', {}, fetchFn)
+    expect(feed.work.map((i) => [i.work.title, i.submitted])).toEqual([
       ['Essay', true],
       ['Quiz', false],
     ])
+    // Announcements are only asked for when they were granted.
+    expect(calls.some((c) => c.includes('/announcements'))).toBe(false)
+  })
+
+  it('reads announcements, and skips a course Classroom will not open', async () => {
+    const { fetchFn } = fakeFetch([
+      ['/courses/bad/', () => ({ status: 404, body: { error: { code: 404, message: 'Requested entity was not found.' } } })],
+      ['/studentSubmissions', () => ({ body: {} })],
+      ['/courseWork?', () => ({ body: {} })],
+      ['/announcements?', () => ({ body: { announcements: [{ id: 'a1', courseId: 'c1', text: 'Hackathon on Friday\nRegister by Thursday', creationTime: '2026-10-22T10:00:00Z' }] } })],
+      ['/courses?', () => ({ body: { courses: [{ id: 'c1', name: 'History' }, { id: 'bad', name: 'Archived' }] } })],
+    ])
+    const feed = await classroomFeed('token', { announcements: true }, fetchFn)
+    expect(feed.skipped).toEqual(['Archived'])
+    expect(feed.announcements).toHaveLength(1)
+    const message = announcementMessage(feed.announcements[0]!.course, feed.announcements[0]!.announcement, 'me')
+    expect(message).toMatchObject({ id: 'classroom-announcement-a1', from: 'History', subject: 'Hackathon on Friday', classroom: { kind: 'announcement', courseId: 'c1' } })
+  })
+
+  it('carries on without announcements when they were not granted after all', async () => {
+    const { fetchFn } = fakeFetch([
+      ['/announcements?', () => ({ status: 403, body: { error: { code: 403, status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } } })],
+      ['/studentSubmissions', () => ({ body: {} })],
+      ['/courseWork?', () => ({ body: { courseWork: [{ id: 'w1', courseId: 'c1', title: 'Essay' }] } })],
+      ['/courses?', () => ({ body: { courses: [{ id: 'c1', name: 'History' }] } })],
+    ])
+    const feed = await classroomFeed('token', { announcements: true }, fetchFn)
+    expect(feed.work).toHaveLength(1)
+    expect(feed.announcements).toEqual([])
+    expect(feed.skipped).toEqual([])
+  })
+
+  it('turns coursework into an inbox message with its exact due date', () => {
+    const message = courseWorkMessage(
+      {
+        course: { id: 'c1', name: 'DBMS' },
+        work: { id: 'w9', courseId: 'c1', title: 'Lab 4', dueDate: { year: 2026, month: 10, day: 25 }, dueTime: { hours: 18, minutes: 29 }, creationTime: '2026-10-22T10:00:00Z' },
+        submitted: false,
+      },
+      'me',
+    )
+    expect(message).toMatchObject({
+      id: 'classroom-work-w9',
+      from: 'DBMS',
+      subject: 'Lab 4',
+      receivedAt: Date.parse('2026-10-22T10:00:00Z'),
+      classroom: { kind: 'work', workId: 'w9', due: { dueAt: Date.UTC(2026, 9, 25, 18, 29), allDay: false } },
+    })
+  })
+})
+
+describe('classroomFiles', () => {
+  it('collects the Drive files of assignments, announcements and materials, and skips the rest', async () => {
+    const drive = (id: string, title: string) => ({ driveFile: { driveFile: { id, title } } })
+    const { fetchFn } = fakeFetch([
+      ['/courseWork?', () => ({ body: { courseWork: [{ id: 'w1', title: 'Lab 5', creationTime: '2026-10-20T10:00:00Z', materials: [drive('f1', 'Lab 5.pdf'), { link: { url: 'https://x' } }] }] } })],
+      ['/announcements?', () => ({ status: 403, body: { error: { code: 403, status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } } })],
+      [
+        '/courseWorkMaterials?',
+        () => ({ body: { courseWorkMaterial: [{ id: 'm1', title: 'Unit 3 slides', creationTime: '2026-10-21T10:00:00Z', updateTime: '2026-10-22T10:00:00Z', materials: [drive('f2', 'Unit 3.pptx')] }] } }),
+      ],
+    ])
+    const { files, skipped } = await classroomFiles('token', [{ id: 'c1', name: 'DBMS' }], fetchFn)
+    expect(skipped).toEqual([])
+    expect(files).toEqual([
+      { course: { id: 'c1', name: 'DBMS' }, post: { id: 'w1', kind: 'work', title: 'Lab 5', postedAt: Date.parse('2026-10-20T10:00:00Z') }, file: { id: 'f1', title: 'Lab 5.pdf' } },
+      { course: { id: 'c1', name: 'DBMS' }, post: { id: 'm1', kind: 'material', title: 'Unit 3 slides', postedAt: Date.parse('2026-10-22T10:00:00Z') }, file: { id: 'f2', title: 'Unit 3.pptx' } },
+    ])
+  })
+})
+
+describe('setDriveTrashed', () => {
+  it('moves a file to the trash and back', async () => {
+    const bodies: string[] = []
+    const { fetchFn, calls } = fakeFetch([['/files/f1', (_url, init) => (bodies.push(`${init?.method} ${init?.body}`), { body: { id: 'f1' } })]])
+    await setDriveTrashed('token', 'f1', true, fetchFn)
+    await setDriveTrashed('token', 'f1', false, fetchFn)
+    expect(calls[0]).toContain('/drive/v3/files/f1')
+    expect(bodies).toEqual(['PATCH {"trashed":true}', 'PATCH {"trashed":false}'])
   })
 })
 

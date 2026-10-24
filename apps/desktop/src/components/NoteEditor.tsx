@@ -5,18 +5,22 @@ import {
   createHistory,
   createNoteSaveQueue,
   edit as recordEdit,
+  keepNoteDraft,
   noteCharacterCount,
   noteTimestamp,
   redo,
   undo,
   type History,
+  type NoteFormValues,
 } from '@cairn/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useActions } from '../app/actions'
+import { useCairn } from '../app/context'
 import { useMediaFolder, useMediaUrl } from '../app/media'
 import { BackIcon, CheckIcon, PinIcon, RedoIcon, UndoIcon } from './icons'
 
-const AUTOSAVE_MS = 800
+/** How long typing pauses before the words are written down on this computer. */
+const DRAFT_MS = 800
 
 /** The text under undo/redo. Tags and pinning are settings, not writing. */
 interface Text {
@@ -26,11 +30,14 @@ interface Text {
 
 /**
  * A full-window writing surface: title, a date and length line, then the note
- * itself filling everything that is left. Saves on a pause and again on the
- * way out, so there is no save button to forget.
+ * itself filling everything that is left. Saves on the way out — leaving the
+ * note, Ctrl+S, or switching away from the window — so there is no save
+ * button to forget, and a long note costs the cloud one write rather than one
+ * every pause. Until then the words are kept on this computer.
  */
 export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void }) {
   const actions = useActions()
+  const { platform } = useCairn()
   const [queue] = useState(() => createNoteSaveQueue(actions, note))
   const [history, setHistory] = useState<History<Text>>(() =>
     createHistory({ title: note?.title ?? '', body: note?.body ?? '' }, Date.now()),
@@ -52,15 +59,18 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
   const blocks = useMemo(() => splitBody(text.body, attachments), [text.body, attachments])
   const hasMedia = blocks.length > 1
 
+  const latest = useRef<NoteFormValues | null>(null)
   const push = useCallback(
     (next: History<Text>, extra?: { tags?: string; pinned?: boolean }) => {
       setHistory(next)
-      queue.change({
+      const values = {
         title: next.present.title,
         body: next.present.body,
         tags: extra?.tags ?? tags,
         pinned: extra?.pinned ?? pinned,
-      })
+      }
+      latest.current = values
+      queue.change(values)
       setStatus('unsaved')
     },
     [queue, tags, pinned],
@@ -72,15 +82,42 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
   const stepBack = () => push(undo(history, Date.now()))
   const stepForward = () => push(redo(history, Date.now()))
 
+  /** Writes the note, once, and forgets the draft it no longer needs. */
+  const saveNow = useCallback(async () => {
+    await queue.save()
+    if (queue.dirty) return
+    setStatus('saved')
+    latest.current = null
+    void keepNoteDraft(platform.storage, null)
+  }, [queue, platform])
+
   useEffect(() => {
     if (!queue.dirty) return
     const timer = setTimeout(() => {
-      void queue.save().then(() => {
-        if (!queue.dirty) setStatus('saved')
-      })
-    }, AUTOSAVE_MS)
+      const values = latest.current
+      if (values) void keepNoteDraft(platform.storage, { noteId: queue.saved?.id ?? note?.id, values, at: Date.now() })
+    }, DRAFT_MS)
     return () => clearTimeout(timer)
-  }, [history, tags, pinned, queue])
+  }, [history, tags, pinned, queue, note, platform])
+
+  // Switching to another window, hiding Cairn to the tray, or quitting is as
+  // good as leaving the note: the person may not come back to it for a while.
+  useEffect(() => {
+    const away = () => {
+      if (queue.dirty) void saveNow()
+    }
+    const hidden = () => document.visibilityState === 'hidden' && away()
+    window.addEventListener('blur', away)
+    window.addEventListener('pagehide', away)
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      window.removeEventListener('blur', away)
+      window.removeEventListener('pagehide', away)
+      document.removeEventListener('visibilitychange', hidden)
+      // Closed some other way than the buttons: write what is pending.
+      away()
+    }
+  }, [queue, saveNow])
 
   // Opening an existing note should let you carry on writing, so the caret
   // goes to the end rather than sitting in front of what you already wrote.
@@ -94,7 +131,7 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
     if (blocksRef.current) blocksRef.current.scrollTop = blocksRef.current.scrollHeight
   }, [note])
 
-  const leave = useCallback(() => void queue.save().then(onClose), [queue, onClose])
+  const leave = useCallback(() => void saveNow().then(onClose), [saveNow, onClose])
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     const mod = event.ctrlKey || event.metaKey
@@ -103,7 +140,7 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
       leave()
     } else if (mod && event.key.toLowerCase() === 's') {
       event.preventDefault()
-      void queue.save().then(() => setStatus('saved'))
+      void saveNow()
     } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'z') {
       // The browser's own undo cannot see a controlled input's history.
       event.preventDefault()
@@ -170,7 +207,7 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
           <span aria-hidden="true">|</span>
           <span>{noteCharacterCount(text.title, text.body)}</span>
           <span className="note-status" aria-live="polite">
-            {status === 'unsaved' ? 'Saving…' : queue.saved ? 'Saved' : ''}
+            {status === 'unsaved' ? 'Saves when you leave' : queue.saved ? 'Saved' : ''}
           </span>
         </p>
 
@@ -226,6 +263,7 @@ export function NoteEditor({ note, onClose }: { note?: Note; onClose: () => void
               type="button"
               className="quiet"
               onClick={async () => {
+                void keepNoteDraft(platform.storage, null)
                 await actions.removeNote(queue.saved!)
                 onClose()
               }}

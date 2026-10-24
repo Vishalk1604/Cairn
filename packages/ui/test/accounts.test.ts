@@ -34,7 +34,9 @@ describe('featuresOf', () => {
 describe('scopesFor', () => {
   it('asks for nothing Cairn does not use', () => {
     const asked = scopesFor('source', { mail: false, classroom: true })
-    expect(asked).not.toContain(scope('classroom.announcements.readonly'))
+    expect(asked).toContain(scope('classroom.announcements.readonly'))
     expect(asked).toContain(scope('classroom.coursework.me.readonly'))
+    expect(asked).not.toContain(scope('classroom.coursework.students.readonly'))
+    expect(asked).not.toContain(scope('classroom.rosters.readonly'))
   })
 })

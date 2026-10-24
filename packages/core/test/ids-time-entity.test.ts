@@ -6,6 +6,7 @@ import {
   isSameLocalDay,
   newerOf,
   purgeableTombstones,
+  revive,
   startOfNextLocalDay,
   tombstone,
   uuidv7,
@@ -73,6 +74,15 @@ describe('entities', () => {
     const dead = tombstone(base, 20)
     expect(dead).toMatchObject({ deletedAt: 20, updatedAt: 20 })
     expect(tombstone(dead, 30)).toBe(dead)
+  })
+
+  it('revive brings a tombstone back, stamped after its deletion', () => {
+    const dead = tombstone(base, 20)
+    const alive = revive(dead, 20)
+    expect('deletedAt' in alive).toBe(false)
+    expect(alive.updatedAt).toBe(21)
+    expect(newerOf(dead, alive)).toBe(alive)
+    expect(revive(base, 30)).toBe(base)
   })
 
   it('last write wins', () => {

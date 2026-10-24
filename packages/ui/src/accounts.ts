@@ -53,6 +53,8 @@ export interface Account {
 export interface SourceFeatures {
   mail: boolean
   classroom: boolean
+  /** Downloading the files teachers attach in Classroom, on the desktop. Implies Classroom. */
+  files?: boolean
 }
 
 interface Stored {
@@ -85,6 +87,11 @@ export function sources(accounts: readonly Account[]): Account[] {
   return accounts.filter((a) => a.role === 'source')
 }
 
+/** Whether Classroom announcements can be read too. Accounts that turned Classroom on before Cairn read them have to be asked again. */
+export function readsAnnouncements(account: Account): boolean {
+  return account.scopes.includes('https://www.googleapis.com/auth/classroom.announcements.readonly')
+}
+
 /** Which features this account has granted Google permission for. Whether they are switched on is a separate, local choice. */
 export function featuresOf(account: Account): SourceFeatures {
   const has = (scope: string) => account.scopes.includes(scope)
@@ -96,6 +103,7 @@ export function featuresOf(account: Account): SourceFeatures {
       has('https://www.googleapis.com/auth/classroom.courses.readonly') &&
       (has('https://www.googleapis.com/auth/classroom.coursework.me.readonly') ||
         has('https://www.googleapis.com/auth/classroom.student-submissions.me.readonly')),
+    files: has('https://www.googleapis.com/auth/classroom.courses.readonly') && has('https://www.googleapis.com/auth/drive.readonly'),
   }
 }
 
@@ -104,7 +112,8 @@ export function scopesFor(role: AccountRole, features: SourceFeatures, already: 
   // The owner keeps the attachments, so it is the only one that needs Drive.
   if (role === 'owner') for (const s of GOOGLE_SCOPES.media) wanted.add(s)
   if (features.mail) for (const s of GOOGLE_SCOPES.mail) wanted.add(s)
-  if (features.classroom) for (const s of GOOGLE_SCOPES.classroom) wanted.add(s)
+  if (features.classroom || features.files) for (const s of GOOGLE_SCOPES.classroom) wanted.add(s)
+  if (features.files) for (const s of GOOGLE_SCOPES.classroomFiles) wanted.add(s)
   return [...wanted]
 }
 

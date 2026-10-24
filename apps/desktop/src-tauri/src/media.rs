@@ -64,7 +64,7 @@ fn decode(value: &str) -> Result<String, String> {
     String::from_utf8(out).map_err(|e| e.to_string())
 }
 
-fn header(request: &Request<'_>, name: &str) -> Result<String, String> {
+pub(crate) fn header(request: &Request<'_>, name: &str) -> Result<String, String> {
     let value = request
         .headers()
         .get(name)

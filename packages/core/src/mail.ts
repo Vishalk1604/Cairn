@@ -1,7 +1,11 @@
 import { parseCapture, type CaptureOptions } from './capture'
 import { DAY } from './time'
 
-/** One email, reduced to what Cairn reads. */
+/**
+ * One email, reduced to what Cairn reads. A Classroom post — new coursework
+ * or an announcement — takes the same shape, so it is read, sorted and
+ * offered as a task the same way.
+ */
 export interface MailMessage {
   id: string
   /** Which linked account it arrived in. */
@@ -12,6 +16,22 @@ export interface MailMessage {
   /** The plain-text body, when it was fetched. */
   text?: string
   receivedAt: number
+  /** Gmail's conversation id: what a link into Gmail opens. */
+  threadId?: string
+  /** Set when this is a Classroom post rather than an email. */
+  classroom?: ClassroomPost
+}
+
+export interface ClassroomPost {
+  kind: 'work' | 'announcement'
+  courseId: string
+  course: string
+  /** The coursework, for work. A task made from it follows the teacher's changes and completes on hand-in. */
+  workId?: string
+  /** Classroom's own due date, exact, for work that has one. */
+  due?: { dueAt: number; allDay: boolean }
+  /** The post in Classroom. */
+  link?: string
 }
 
 export type MailKind = 'classroom' | 'deadline' | 'other'
@@ -67,6 +87,13 @@ export function readMail(message: MailMessage, now: number, options?: CaptureOpt
   const subject = tidy(message.subject)
   const body = message.text ?? message.snippet
 
+  // Coursework read from Classroom itself: its due date is exact, but
+  // whether it becomes a task is still the person's tap.
+  const post = message.classroom
+  if (post?.kind === 'work') {
+    return { kind: 'classroom', title: subject, course: post.course, dueAt: post.due?.dueAt, allDay: post.due?.allDay ?? false, confident: false }
+  }
+
   if (CLASSROOM_SENDER.test(message.from)) {
     const title = QUOTED.exec(subject)?.[1]?.trim() ?? subject.replace(/^[^:]{0,40}:\s*/, '')
     const course = COURSE.exec(body)?.[1]?.trim()
@@ -98,6 +125,14 @@ export function readMail(message: MailMessage, now: number, options?: CaptureOpt
 /** The reminder id for an email, so adding the same one twice merges instead of duplicating. */
 export function mailTaskId(message: Pick<MailMessage, 'id'>): string {
   return `mail-${message.id}`
+}
+
+/**
+ * The reminder id for anything in the inbox. Coursework keeps Classroom's
+ * id, so its task follows a moved deadline and completes on hand-in.
+ */
+export function inboxTaskId(message: Pick<MailMessage, 'id' | 'classroom'>): string {
+  return message.classroom?.workId ? classroomTaskId(message.classroom.workId) : mailTaskId(message)
 }
 
 /** Classroom's own representation of a due date: a UTC calendar date and optional UTC time. */

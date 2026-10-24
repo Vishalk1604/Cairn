@@ -13,9 +13,10 @@ export interface NoteFormValues {
 
 /**
  * Saves a note while it's being edited. Editors record every change and call
- * save() on a debounce and once more on close. Saves run one at a time, so a
- * new note is created exactly once, the latest values always win, and a
- * failed save stays pending for the next attempt.
+ * save() when the person leaves the note (or the app), so a note costs one
+ * write however much is typed. Saves run one at a time, so a new note is
+ * created exactly once, the latest values always win, and a failed save stays
+ * pending for the next attempt.
  */
 export function createNoteSaveQueue(actions: Pick<Actions, 'addNote' | 'saveNote'>, initial?: Note) {
   let saved = initial

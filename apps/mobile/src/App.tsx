@@ -1,5 +1,6 @@
 import type { Note, Reminder } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
+import { recoverNoteDraft } from '@cairn/ui'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -9,6 +10,7 @@ import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from 'react-nati
 import { BottomNav, type Section } from './components/BottomNav'
 import { SnoozeSheet } from './components/SnoozeSheet'
 import { onNotificationOpened, scheduleNotifications, setUpNotifications, setUrgentAlerts } from './platform/notifications'
+import { storage } from './platform/storage'
 import { EditorScreen } from './screens/EditorScreen'
 import { FoldersScreen } from './screens/FoldersScreen'
 import { InboxScreen } from './screens/InboxScreen'
@@ -16,6 +18,7 @@ import { NotesScreen } from './screens/NotesScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { TaskEditorScreen } from './screens/TaskEditorScreen'
 import { TasksScreen } from './screens/TasksScreen'
+import { useActions } from './state/actions'
 import { CairnProvider } from './state/CairnProvider'
 import { useCairn } from './state/context'
 import { ALL_FOLDER } from './state/folders'
@@ -77,7 +80,8 @@ type Page = 'folders' | 'settings' | null
 
 function Main() {
   const c = useColors()
-  const { reminders } = useCairn()
+  const { reminders, notes } = useCairn()
+  const actions = useActions()
   const { preferences } = usePreferences()
   const inbox = useInbox()
   const active = useObserved(reminders, ACTIVE)
@@ -99,6 +103,14 @@ function Main() {
     shown.current = true
   }, [])
   activeRef.current = active
+
+  // A note being written when the app was killed is saved now, once.
+  const recovered = useRef(false)
+  useEffect(() => {
+    if (recovered.current) return
+    recovered.current = true
+    void recoverNoteDraft(storage, notes, actions)
+  }, [notes, actions])
 
   useEffect(
     () =>

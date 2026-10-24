@@ -29,15 +29,27 @@ export const GOOGLE_SCOPES = {
   /**
    * First time you turn on Classroom. Sensitive.
    *
-   * Only what Cairn reads: courses, and your own coursework with its
-   * submission state. Announcements are never read, and the older
-   * student-submissions scope is a synonym Google collapses into
-   * coursework.me — asking for both meant the grant never contained both,
-   * so Classroom could never count as switched on.
+   * Only what Cairn reads: courses, your own coursework with its
+   * submission state, and announcements. The older student-submissions
+   * scope is a synonym Google collapses into coursework.me — asking for both
+   * meant the grant never contained both, so Classroom could never count as
+   * switched on.
    */
   classroom: [
     'https://www.googleapis.com/auth/classroom.courses.readonly',
     'https://www.googleapis.com/auth/classroom.coursework.me.readonly',
+    'https://www.googleapis.com/auth/classroom.announcements.readonly',
+  ],
+  /**
+   * First time you turn on Classroom files on the desktop. Restricted.
+   *
+   * A file a teacher attaches lives in the teacher's Drive, not Cairn's, so
+   * downloading it needs read access to Drive files shared with you; the
+   * materials scope covers posts that are only a material, with no task.
+   */
+  classroomFiles: [
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly',
   ],
 } as const
 

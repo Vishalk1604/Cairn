@@ -88,6 +88,7 @@ export const webPlatform: DesktopPlatform = {
 
   // A page cannot keep files in a folder; photos show in the desktop app.
   media: null,
+  classroom: null,
 
   googleClientId,
   googleClientSecret,

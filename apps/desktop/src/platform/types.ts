@@ -30,6 +30,23 @@ export interface DesktopPlatform extends Platform {
   readonly autostart: { isEnabled(): Promise<boolean>; set(enabled: boolean): Promise<boolean> } | null
   /** A folder on disk for photos and recordings. Null in a browser, which has no disk to offer. */
   readonly media: DesktopMedia | null
+  /** A folder on disk for files from Google Classroom. Null in a browser. */
+  readonly classroom: DesktopClassroom | null
+}
+
+/**
+ * The Classroom folder: the user's own, so the shell only ever adds files
+ * to it, under a folder per course, and never overwrites or deletes one.
+ */
+export interface DesktopClassroom {
+  /** Documents\Cairn Classroom, until the user picks somewhere else. */
+  defaultFolder(): Promise<string>
+  /** Null when the picker is closed without choosing. */
+  pickFolder(current: string): Promise<string | null>
+  /** Saves a file at "Course/Name.pdf" inside the folder, and says the path it took, which gains " (2)" when the name is taken. */
+  write(folder: string, path: string, bytes: ArrayBuffer): Promise<string>
+  /** Shows the folder, or a course folder inside it, in Explorer. */
+  open(folder: string): Promise<void>
 }
 
 /**

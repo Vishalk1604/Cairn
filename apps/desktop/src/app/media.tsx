@@ -1,5 +1,5 @@
 import { attachmentFileName, type Attachment } from '@cairn/core'
-import { driveDownloadUrl, type NoteQuery } from '@cairn/sync'
+import { driveDownload, GOOGLE_SCOPES, GoogleApiError, type NoteQuery } from '@cairn/sync'
 import { accessTokenFor, owner, planMediaSync, type LocalMediaFile } from '@cairn/ui'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useCairn } from './context'
@@ -146,25 +146,31 @@ export function MediaProvider({ children }: { children: ReactNode }) {
             await media.remove(folder, name)
             forget(name)
           }
+          if (plan.download.length && !GOOGLE_SCOPES.media.every((s) => holder.scopes.includes(s))) {
+            setError('Cairn was not allowed into your Drive when you signed in. Sign out and sign in again, and tick the Drive box.')
+            break
+          }
           let failed = 0
+          let why: unknown = null
           if (plan.download.length) {
             setFetching(plan.download.length)
             const { accessToken } = await accessTokenFor(platform, holder)
             await eachLimit(plan.download, AT_ONCE, async (a) => {
               try {
-                const response = await fetch(driveDownloadUrl(a.driveFileId!), { headers: { Authorization: `Bearer ${accessToken}` } })
-                if (!response.ok) throw new Error(`Drive answered ${response.status}`)
+                const bytes = await driveDownload(accessToken, a.driveFileId!)
                 const name = attachmentFileName(a)
-                await media.write(folder, name, await response.arrayBuffer())
+                await media.write(folder, name, bytes)
                 forget(name)
-              } catch {
+              } catch (e) {
                 failed++
+                why ??= e
+                console.error('Could not fetch', a.driveFileId, e)
               } finally {
                 setFetching((n) => Math.max(0, n - 1))
               }
             })
           }
-          setError(failed ? `${failed} ${failed === 1 ? 'file' : 'files'} could not be fetched from Drive. Cairn will try again.` : null)
+          setError(failed ? `${failed} ${failed === 1 ? 'file' : 'files'} could not be fetched from Drive: ${fetchProblem(why)} Cairn will try again.` : null)
           if (failed) setTimeout(() => setRetry((r) => r + 1), RETRY_MS)
           if (plan.remove.length || plan.download.length) await look(folder)
         } while (again.current)
@@ -239,6 +245,17 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   }, [media, folder, fallback, present, fetching, error, signedIn, version, urlFor, moveTo])
 
   return <Context.Provider value={value}>{children}</Context.Provider>
+}
+
+/** Why a download failed, in words that say what to do about it. */
+function fetchProblem(error: unknown): string {
+  if (error instanceof GoogleApiError) {
+    if (error.status === 401 || error.missingScope) return 'Drive refused this sign-in. Sign out and sign in again, and tick the Drive box.'
+    if (error.status === 404) return 'Drive could not find it. It may still be uploading from your phone, or it was deleted there.'
+    return `${error.message} (${error.status}).`
+  }
+  const text = error instanceof Error ? error.message : String(error)
+  return /fetch|network|load/i.test(text) ? `Drive could not be reached (${text}).` : `${text}.`
 }
 
 async function eachLimit<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {

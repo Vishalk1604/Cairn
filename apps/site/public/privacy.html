@@ -25,8 +25,8 @@
           <li>Images and recordings are stored in <strong>your own Google Drive</strong>, not in Cairn's database.</li>
           <li>Your email is read <strong>on your own device</strong> and is never sent to any server the developer runs.</li>
           <li>
-            <strong>Only if you add your own NVIDIA API key</strong>, the text of new emails is sent to NVIDIA's AI
-            service to be sorted. Without a key, nothing leaves your device for this.
+            <strong>Only if you add your own NVIDIA API key</strong>, the text of new emails and Classroom posts is
+            sent to NVIDIA's AI service to be sorted. Without a key, nothing leaves your device for this.
           </li>
           <li>The developer runs <strong>no server</strong> of their own. Nothing is sold, shared or analysed.</li>
         </ul>
@@ -50,13 +50,25 @@
           <dt>Google Classroom (read-only)</dt>
           <dd>
             To read your course list, assignments and their due dates, announcements, and whether you have submitted
-            an assignment — so a reminder can tick itself off when you hand work in.
+            an assignment — so new work and announcements show in Cairn's inbox, and a reminder made from an
+            assignment can tick itself off when you hand the work in.
           </dd>
 
           <dt>Google Drive (files created by Cairn only)</dt>
           <dd>
             To store images and audio you attach to a note. Cairn uses the <code>drive.file</code> scope, which means
             it can only see files it created itself. It cannot read the rest of your Drive.
+          </dd>
+
+          <dt>Google Drive, read-only, and Classroom materials (only if you turn on Classroom files)</dt>
+          <dd>
+            In the Windows app you can choose to save the files your teachers attach in Google Classroom. Those files
+            belong to your teachers, not to Cairn, so reading them needs read-only access to Drive files shared with
+            you (<code>drive.readonly</code>), and <code>classroom.courseworkmaterials.readonly</code> to see posts that
+            are only a material. Cairn opens only the files attached to posts in the classes you pick, and saves
+            them to the folder you choose on your computer. They are not uploaded, synced or sent anywhere else, and Cairn never
+            changes or deletes anything in your Drive or in that folder. Turning the setting off stops it; you can
+            remove the access at any time as described below.
           </dd>
         </dl>
       </section>
@@ -76,18 +88,25 @@
           only the first is used to store data. Any additional account is used solely to read its own Gmail and
           Classroom, and nothing is written to it.
         </p>
+        <p>
+          A note you delete goes to Cairn's recycle bin for 30 days, where you can restore it. After 30 days it is
+          deleted for good from your phone, your computer and the database. Its images and recordings are moved to
+          your Drive's trash when the note is deleted, and Google empties Drive's trash after 30 days.
+        </p>
       </section>
 
       <section id="ai">
-        <h2>Automatic sorting of email</h2>
+        <h2>Automatic sorting of email and Classroom</h2>
         <p>
           Without an AI key, Cairn sorts mail on your device with fixed rules, and no third party is involved.
         </p>
         <p>
-          <strong>If, and only if, you add your own NVIDIA API key</strong> in Settings → AI sorting, each new email
-          is sent to NVIDIA's AI service (<code>integrate.api.nvidia.com</code>) to decide whether it is important,
-          which folder it belongs in, a one-line summary, and any deadline in it. What is sent is the sender, the
-          subject, when it arrived, and up to the first 6,000 characters of the message text. Attachments are never
+          <strong>If, and only if, you add your own NVIDIA API key</strong> in Settings → AI sorting, each new email,
+          and each new Classroom assignment and announcement, is sent to NVIDIA's AI service
+          (<code>integrate.api.nvidia.com</code>) to decide whether it is important, which folder and tags it
+          belongs under, a one-line summary, and any deadline or time in it. What is sent is the sender (or the
+          course name), the subject or title, when it arrived, any Classroom due date, up to the first 6,000
+          characters of the text, and what you wrote under “What matters to you” in Settings. Attachments are never
           sent. While a key is set, Cairn also reads the Promotions and Social tabs so that nothing important is
           missed there. Spam and Trash are never read.
         </p>
@@ -141,7 +160,7 @@
       <footer>
         <a href="/">Cairn</a>
         <a href="/terms">Terms</a>
-        <span>Last updated 22 October 2026</span>
+        <span>Last updated 23 October 2026</span>
       </footer>
     </main>
   </body>

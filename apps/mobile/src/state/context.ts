@@ -77,12 +77,28 @@ export async function startSync(local: LocalStore, accounts: readonly Account[],
     replicate(local.notes, synced.notes, { includeDeleted: true }, uid),
     replicate(local.reminders, synced.reminders, { includeDeleted: true }, uid),
   ]
+  void purgeExpired(synced)
   return {
     uid,
     stop() {
       for (const stop of stops) stop()
       synced.close()
     },
+  }
+}
+
+/**
+ * Deletes for good what has sat in the recycle bin for thirty days, from the
+ * cloud as well as here. Run once the server has answered, so the whole
+ * collection is known, not just what was cached.
+ */
+async function purgeExpired(synced: Awaited<ReturnType<typeof openSyncedRepositories>>): Promise<void> {
+  try {
+    await Promise.all([synced.notes.serverSynced(), synced.reminders.serverSynced()])
+    const now = Date.now()
+    await Promise.all([synced.notes.purgeTombstones(now), synced.reminders.purgeTombstones(now)])
+  } catch (error) {
+    console.error('Could not empty the recycle bin', error)
   }
 }
 

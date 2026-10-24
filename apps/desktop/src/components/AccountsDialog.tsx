@@ -74,6 +74,10 @@ export function AccountsDialog({ onClose }: { onClose: () => void }) {
             />
             Classroom — assignments and their due dates
           </label>
+          <label className="inline">
+            <input type="checkbox" checked={adding.files ?? false} onChange={(e) => setAdding({ ...adding, files: e.target.checked })} />
+            Classroom files — save what teachers attach to this computer
+          </label>
           <p className="hint">
             You'll be asked to pick the account in your browser. Nothing is ever written to it.
           </p>
@@ -85,7 +89,7 @@ export function AccountsDialog({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               className="primary"
-              disabled={busy || (!adding.mail && !adding.classroom)}
+              disabled={busy || (!adding.mail && !adding.classroom && !adding.files)}
               onClick={() => void run(() => connectSource(adding))}
             >
               {busy ? 'Waiting for your browser…' : 'Connect'}
@@ -120,7 +124,7 @@ export function AccountsDialog({ onClose }: { onClose: () => void }) {
 
   function AccountRow({ account }: { account: Account }) {
     const features = featuresOf(account)
-    const reading = [features.mail ? 'Gmail' : null, features.classroom ? 'Classroom' : null].filter(Boolean)
+    const reading = [features.mail ? 'Gmail' : null, features.classroom ? 'Classroom' : null, features.files ? 'class files' : null].filter(Boolean)
     const missing: SourceFeatures = { mail: !features.mail, classroom: !features.classroom }
 
     return (

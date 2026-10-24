@@ -1,4 +1,4 @@
-import { createNote, updateNote, type Note } from '@cairn/core'
+import { createNote, DAY, deleteNote, updateNote, type Note } from '@cairn/core'
 import { describe, expect, it } from 'vitest'
 import { LocalRepository, matchesNoteQuery, replicate, type NoteQuery, type RemoteRepository } from '../src'
 
@@ -98,5 +98,17 @@ describe('replicate', () => {
     await local.upsert(note('after sign-out', 'uid'))
     await settle()
     expect(await remote.repo.list(EVERYTHING)).toHaveLength(0)
+  })
+
+  it('never sends a tombstone past its thirty days back to the cloud', async () => {
+    const local = new LocalRepository<Note, NoteQuery>(matchesNoteQuery)
+    const remote = cloud()
+    // Deleted long ago on a phone that has been offline since; the cloud has already purged it.
+    await local.upsert(deleteNote(note('old', 'uid', Date.now() - 40 * DAY), Date.now() - 31 * DAY))
+    await local.upsert(deleteNote(note('recent', 'uid'), Date.now() - DAY))
+    replicate(local, remote.repo, EVERYTHING, 'uid')
+    remote.answer()
+    await settle()
+    expect((await remote.repo.list(EVERYTHING)).map((n) => n.title)).toEqual(['recent'])
   })
 })

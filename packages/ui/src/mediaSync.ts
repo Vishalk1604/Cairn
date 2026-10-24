@@ -39,3 +39,48 @@ function isWhole(bytes: number | undefined, a: Attachment): boolean {
   if (!bytes) return false
   return a.bytes === undefined || a.bytes === bytes
 }
+
+export interface DriveTrashPlan {
+  /** Files of notes in the recycle bin, or taken out of a note, not yet in Drive's trash. */
+  trash: string[]
+  /** Files in Drive's trash whose note came back out of the recycle bin. */
+  restore: string[]
+  /** Files no note mentions any more, already trashed: nothing left to remember them for. */
+  forget: string[]
+}
+
+/**
+ * Which Drive files to move to Drive's trash, and back, so Drive follows the
+ * recycle bin. Drive empties its trash after thirty days, the same time a
+ * note spends in the bin, so a file goes for good when its note does.
+ *
+ * Only a note in the bin, or a file this phone sent that no note mentions
+ * any more, is ever trashed: never one merely missing from the list, which
+ * may just be a note not synced yet.
+ */
+export function planDriveTrash(
+  notes: readonly Note[],
+  /** Attachment id → Drive file id, for the files this phone sent. */
+  uploaded: Readonly<Record<string, string>>,
+  /** Drive file ids this phone has already put in Drive's trash. */
+  trashed: ReadonlySet<string>,
+): DriveTrashPlan {
+  const live = new Set<string>()
+  const binned = new Set<string>()
+  const mentioned = new Set<string>()
+  for (const note of notes) {
+    for (const a of note.attachments ?? []) {
+      const file = a.driveFileId ?? uploaded[a.id]
+      if (!file) continue
+      mentioned.add(file)
+      if (note.deletedAt === undefined) live.add(file)
+      else binned.add(file)
+    }
+  }
+  const dropped = Object.values(uploaded).filter((file) => !mentioned.has(file))
+  return {
+    trash: [...new Set([...binned, ...dropped])].filter((file) => !live.has(file) && !trashed.has(file)),
+    restore: [...trashed].filter((file) => live.has(file)),
+    forget: [...trashed].filter((file) => !mentioned.has(file)),
+  }
+}

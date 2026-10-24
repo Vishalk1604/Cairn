@@ -18,7 +18,9 @@ Planned for v1:
 - **Windows desktop widget.** A frameless, translucent panel that lives on your desktop, plus a global quick-capture hotkey (`Ctrl+Shift+Space`).
 - **Sync** between phone and desktop through your Google account.
 - **Gmail triage** (optional). Sorts incoming mail into important and not, tells you why, and learns from your corrections.
-- **Google Classroom** (optional). Assignments and quizzes become reminders with the right due date, and tick themselves off when you submit.
+- **Google Classroom** (optional). New assignments and announcements show in the inbox; one tap makes a reminder with the right due date, and it ticks itself off when you submit.
+- **Classroom files** (Windows, optional). Pick which of your classes to save, newest classes listed first. Notes, slides and worksheets their teachers attach are saved to a folder you choose, a folder per class, and each new one as it is posted. Google Docs and Slides arrive as PDF.
+- **Recycle bin.** Deleted notes wait in **Settings → Recycle bin** for 30 days, then are deleted for good everywhere, their photos and recordings included.
 
 Not in v1: iOS, macOS, Linux, shared notes, attachments, two-way calendar sync, location-based reminders.
 
@@ -48,7 +50,7 @@ Cairn is designed so that your email never passes through a server we run.
 
 ## AI sorting
 
-The Android app can sort your mail with AI: it picks out what matters, files it into folders it names itself (Hackathons, Jobs, and so on), writes a one-line summary, and turns real deadlines into tasks. It is off until you add a key, and **every person uses their own key** — Cairn never ships one, so no one's mail goes through anyone else's account and no single key's rate limit is shared.
+The Android app can sort your mail and Classroom posts with AI: it picks out what matters to you, files each one into a folder it names itself (Hackathons, Jobs, and so on), tags it (`#hackathon #sih`, `#assignment #cs301`), writes a one-line summary, and reads off any deadline or event time. **Add as task** then puts it in Tasks at exactly that time, with those tags. Tell it what matters under **Settings → AI sorting → What matters to you**; marking a sender Important or Not important overrules it from then on. It is off until you add a key, and **every person uses their own key** — Cairn never ships one, so no one's mail goes through anyone else's account and no single key's rate limit is shared.
 
 To turn it on:
 

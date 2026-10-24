@@ -1,17 +1,20 @@
-import { AiError, checkAiKey, modelsFor, readAiSetup, type AiSetup } from '@cairn/sync'
-import { featuresOf, owner, sources, type Account } from '@cairn/ui'
+import { AiError, checkAiKey, modelsFor, readAiSetup, type AiSetup, type NoteQuery } from '@cairn/sync'
+import { DEFAULT_PROFILE, PROFILE_LIMIT } from '@cairn/core'
+import { featuresOf, owner, readsAnnouncements, recycleBin, sources, type Account } from '@cairn/ui'
 import Constants from 'expo-constants'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ActivityIndicator, BackHandler, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { notificationPermission, requestNotificationPermission, type PermissionState } from '../platform/notifications'
 import { useCairn } from '../state/context'
+import { useObserved } from '../state/hooks'
 import { readingOn, useInbox } from '../state/inbox'
 import { usePreferences, type Feature, type FontSize, type Layout, type SortOrder } from '../state/preferences'
 import { useToast } from '../state/toast'
 import { radius, space, useColors } from '../theme'
 import { Glyph } from '../ui/icons'
 import { fadeIn, fadeOut, settle, sheetIn, sheetOut, Tap } from '../ui/motion'
+import { RecycleBinScreen } from './RecycleBinScreen'
 
 const SITE = 'https://cairn-vishalk.web.app'
 /** Where the key comes from. Any model page there gives the same kind of key. */
@@ -20,6 +23,8 @@ const NVIDIA_PAGE = 'https://build.nvidia.com/openai/gpt-oss-20b'
 const FONT_LABEL: Record<FontSize, string> = { small: 'Small', medium: 'Medium', large: 'Large' }
 const SORT_LABEL: Record<SortOrder, string> = { modified: 'By modification date', created: 'By creation date' }
 const LAYOUT_LABEL: Record<Layout, string> = { grid: 'Grid view', list: 'List view' }
+
+const WITH_DELETED: NoteQuery = { includeDeleted: true }
 
 type Choice = { title: string; options: { label: string; on: boolean; pick: () => void }[] }
 
@@ -33,6 +38,9 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const [permission, setPermission] = useState<PermissionState | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [keySheet, setKeySheet] = useState(false)
+  const [bin, setBin] = useState(false)
+  const [profileSheet, setProfileSheet] = useState(false)
+  const binned = recycleBin(useObserved(cairn.notes, WITH_DELETED), Date.now()).length
 
   useEffect(() => {
     void notificationPermission().then(setPermission)
@@ -40,13 +48,15 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (keySheet) setKeySheet(false)
+      if (bin) setBin(false)
+      else if (profileSheet) setProfileSheet(false)
+      else if (keySheet) setKeySheet(false)
       else if (choice) setChoice(null)
       else onBack()
       return true
     })
     return () => sub.remove()
-  }, [choice, keySheet, onBack])
+  }, [bin, profileSheet, choice, keySheet, onBack])
 
   /** Runs an account action with a spinner on its row, and says what went wrong rather than failing silently. */
   const run = async (key: string, action: () => Promise<void>) => {
@@ -84,6 +94,17 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
     })
   }
 
+  /** Classroom switched on before Cairn read announcements: Google has to be asked once more. */
+  const allowAnnouncements = (account: Account) => {
+    const sub = account.identity.sub
+    void run(`${sub}:announcements`, async () => {
+      const now = (await cairn.regrant(account, { ...featuresOf(account), classroom: true })).find((a) => a.identity.sub === sub)
+      if (!now || !readsAnnouncements(now)) {
+        throw new Error("Google didn't give Cairn the announcements. Tick every box on the permission screen to read them.")
+      }
+    })
+  }
+
   const main = owner(cairn.accounts)
   const linked = sources(cairn.accounts)
   const auth = cairn.auth
@@ -93,6 +114,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
       title,
       options: (Object.keys(labels) as T[]).map((value) => ({ label: labels[value], on: value === current, pick: () => set(value) })),
     })
+
+  if (bin) return <RecycleBinScreen onBack={() => setBin(false)} />
 
   return (
     <View style={[styles.screen, { backgroundColor: c.bg }]}>
@@ -142,12 +165,18 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         {main && (
           <Section title="Mail and Classroom">
             <Text style={[styles.note, { color: c.faint }]}>
-              Cairn reads new mail and Classroom work, picks out what matters and turns due dates into tasks. Nothing in your mailbox is ever sent or changed.
+              Cairn reads new mail and Classroom posts, picks out what matters and offers due dates as tasks. Nothing in your mailbox or your classes is ever sent or changed.
             </Text>
-            <AccountFeatures account={main} busy={busy} paused={preferences.paused} onToggle={(f) => toggle(main, f)} />
+            <AccountFeatures account={main} busy={busy} paused={preferences.paused} onToggle={(f) => toggle(main, f)} onAnnouncements={() => allowAnnouncements(main)} />
             {linked.map((account) => (
               <View key={account.identity.sub}>
-                <AccountFeatures account={account} busy={busy} paused={preferences.paused} onToggle={(f) => toggle(account, f)} />
+                <AccountFeatures
+                  account={account}
+                  busy={busy}
+                  paused={preferences.paused}
+                  onToggle={(f) => toggle(account, f)}
+                  onAnnouncements={() => allowAnnouncements(account)}
+                />
                 <Row title="Disconnect" danger onPress={() => void run(`x${account.identity.sub}`, () => cairn.disconnectSource(account.identity.sub))} />
               </View>
             ))}
@@ -163,9 +192,16 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         {/* Shown signed out too, so the place to paste a key is easy to find. */}
         <Section title="AI sorting">
           <Text style={[styles.note, { color: c.faint }]}>
-            With a key, Cairn sends each new email's text to NVIDIA's AI service, which picks out what matters and files it into folders such as Hackathons
-            or Jobs. The key stays on this phone.{main ? '' : ' It starts working once you sign in and turn on mail reading.'}
+            With a key, Cairn sends the text of each new email and Classroom post to NVIDIA's AI service, which picks out what matters to you, files it
+            into folders such as Hackathons or Jobs, tags it, and reads off any deadline or time. The key stays on this phone.
+            {main ? '' : ' It starts working once you sign in and turn on mail reading.'}
           </Text>
+          <Row
+            title="What matters to you"
+            detail={inbox.profile.length > 140 ? `${inbox.profile.slice(0, 137)}…` : inbox.profile}
+            trailing={<Glyph char="›" color={c.muted} size={26} />}
+            onPress={() => setProfileSheet(true)}
+          />
           {inbox.ai.on ? (
             <>
               <Row
@@ -215,6 +251,15 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           />
         </Section>
 
+        <Section title="Notes">
+          <Row
+            title="Recycle bin"
+            detail={`${binned === 0 ? 'Empty' : binned === 1 ? '1 note' : `${binned} notes`} · deleted notes are kept for 30 days`}
+            trailing={<Glyph char="›" color={c.muted} size={26} />}
+            onPress={() => setBin(true)}
+          />
+        </Section>
+
         <Section title="About">
           <Row title="Version" value={Constants.expoConfig?.version ?? '—'} />
           <Row title="Privacy policy" trailing={<Glyph char="›" color={c.muted} size={26} />} onPress={() => void Linking.openURL(`${SITE}/privacy`)} />
@@ -232,6 +277,18 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
             const preferred = modelsFor(setup)[0]?.label ?? model
             toast({ message: model === preferred ? `Key works. Mail will be sorted by ${model}.` : `Key works. ${preferred} is busy, so ${model} will sort mail for now.` })
           }}
+        />
+      )}
+
+      {profileSheet && (
+        <ProfileSheet
+          profile={inbox.profile}
+          onSave={(text) => {
+            inbox.setProfile(text)
+            setProfileSheet(false)
+            toast({ message: 'Saved. New mail is read with it from now on.' })
+          }}
+          onClose={() => setProfileSheet(false)}
         />
       )}
 
@@ -350,16 +407,66 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
   )
 }
 
+/**
+ * What the model is told matters, in the person's own words. It goes with
+ * every message it reads, so "SIH and anything from the placement cell" is
+ * enough to move those into Important.
+ */
+function ProfileSheet({ profile, onSave, onClose }: { profile: string; onSave: (text: string) => void; onClose: () => void }) {
+  const c = useColors()
+  const [text, setText] = useState(profile)
+  const keyboard = useAnimatedKeyboard()
+  const lift = useAnimatedStyle(() => ({ transform: [{ translateY: -keyboard.height.value }] }))
+  return (
+    <Animated.View entering={fadeIn} exiting={fadeOut} style={[StyleSheet.absoluteFill, styles.scrim]}>
+      <Tap onPress={onClose} scaleTo={1} haptic="none" style={styles.flex}>
+        <View />
+      </Tap>
+      <Animated.View entering={sheetIn} exiting={sheetOut} style={[styles.sheet, { backgroundColor: c.surface }, lift]}>
+        <Text style={[styles.sheetTitle, { color: c.fg }]}>What matters to you</Text>
+        <Text style={{ color: c.muted, marginBottom: space.md, lineHeight: 20 }}>
+          Say what you want in Important and what you don't, in your own words. The AI reads every email and Classroom post with this in mind.
+        </Text>
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          multiline
+          maxLength={PROFILE_LIMIT}
+          placeholder={DEFAULT_PROFILE}
+          placeholderTextColor={c.faint}
+          style={[styles.keyInput, styles.profileInput, { color: c.fg, backgroundColor: c.surfaceHigh }]}
+          textAlignVertical="top"
+          accessibilityLabel="What matters to you"
+        />
+        <Text style={{ color: c.faint, marginTop: space.xs, textAlign: 'right' }}>
+          {text.length}/{PROFILE_LIMIT}
+        </Text>
+        <View style={styles.profileButtons}>
+          <Tap onPress={() => setText(DEFAULT_PROFILE)} scaleTo={0.96} style={[styles.openPage, { borderColor: c.line }]}>
+            <Text style={{ color: c.muted }}>Use the default</Text>
+          </Tap>
+          <View style={styles.flex} />
+          <Tap onPress={() => onSave(text)} scaleTo={0.96} haptic="medium" style={[styles.profileSave, { backgroundColor: c.accent }]}>
+            <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 16 }}>Save</Text>
+          </Tap>
+        </View>
+      </Animated.View>
+    </Animated.View>
+  )
+}
+
 function AccountFeatures({
   account,
   busy,
   paused,
   onToggle,
+  onAnnouncements,
 }: {
   account: Account
   busy: string | null
   paused: Record<Feature, string[]>
   onToggle: (feature: Feature) => void
+  onAnnouncements: () => void
 }) {
   const c = useColors()
   const sub = account.identity.sub
@@ -375,7 +482,15 @@ function AccountFeatures({
     <View>
       <Text style={[styles.accountName, { color: c.fg }]}>{account.identity.email}</Text>
       {row('mail', 'Read Gmail', 'New mail from now on — important mail and deadlines picked out')}
-      {row('classroom', 'Read Google Classroom', 'New coursework from now on becomes a task, ticked off when you hand in')}
+      {row('classroom', 'Read Google Classroom', 'New coursework and announcements from now on. A task made from coursework ticks itself off when you hand in')}
+      {readingOn(account, 'classroom', paused) && !readsAnnouncements(account) && (
+        <Row
+          title="Read announcements too"
+          detail="Classroom was switched on before Cairn read announcements. Google will ask you once more."
+          trailing={busy === `${sub}:announcements` ? <ActivityIndicator color={c.accent} /> : <Glyph char="›" color={c.muted} size={26} />}
+          onPress={onAnnouncements}
+        />
+      )}
     </View>
   )
 }
@@ -472,4 +587,7 @@ const styles = StyleSheet.create({
   stepText: { flex: 1, fontSize: 15, lineHeight: 21 },
   openPage: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 18, paddingHorizontal: space.lg, paddingVertical: space.sm, marginVertical: space.md },
   keySave: { marginTop: space.lg, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  profileInput: { minHeight: 140, maxHeight: 240, fontSize: 15, lineHeight: 21 },
+  profileButtons: { flexDirection: 'row', alignItems: 'center', marginTop: space.sm },
+  profileSave: { height: 48, borderRadius: 24, paddingHorizontal: space.xl, alignItems: 'center', justifyContent: 'center' },
 })

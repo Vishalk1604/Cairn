@@ -1,6 +1,7 @@
 // Release builds are GUI-only; without this Windows opens a console window too.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod classroom;
 mod focus;
 mod icon;
 mod media;
@@ -120,6 +121,8 @@ fn main() {
             media::media_remove,
             media::media_move,
             media::media_open,
+            classroom::classroom_default_dir,
+            classroom::classroom_write,
         ])
         .setup(|app| {
             tray::create(app.handle())?;
