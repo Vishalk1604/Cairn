@@ -41,3 +41,13 @@ export function formatReminderWhen(r: Reminder, now: number, options: FormatOpti
   }
   return parts.join(' · ')
 }
+
+/** "just now", "4 min ago", "2 h ago", then the date: for a last-synced or last-checked line. */
+export function formatAgo(t: number, now: number, options: FormatOptions = {}): string {
+  const minutes = Math.floor((now - t) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  return new Date(t).toLocaleDateString(options.locale, { day: 'numeric', month: 'short' })
+}

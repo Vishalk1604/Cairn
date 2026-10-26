@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, deleteDoc, type Firestore } from 'firebase/firestore'
+import { doc, getDoc, setDoc, deleteDoc, updateDoc, type Firestore } from 'firebase/firestore'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -138,6 +138,89 @@ describe('document shape', () => {
     for (const priority of ['low', 'normal', 'high']) {
       await assertSucceeds(setDoc(reminderAt(mine(), ME, `p-${priority}`), reminder(`p-${priority}`, ME, { priority })))
     }
+  })
+})
+
+// A made-up key of the right shape. Never a real one.
+const FAKE_KEY = `nvapi-${'0'.repeat(32)}`
+
+const record = (id: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  account: 'me@gmail.com',
+  from: 'Devfolio <hello@devfolio.co>',
+  subject: 'HackMIT registrations close Friday',
+  snippet: 'Register before Friday',
+  receivedAt: 1_700_000_000_000,
+  foundAt: 1_700_000_000_000,
+  updatedAt: 1_700_000_000_000,
+  reading: { kind: 'deadline', title: 'HackMIT', allDay: false },
+  ...extra,
+})
+
+const inboxAt = (db: Firestore, userId: string, id: string) => doc(db, 'users', userId, 'inbox', id)
+const settingAt = (db: Firestore, userId: string, name: string) => doc(db, 'users', userId, 'settings', name)
+
+describe('the shared inbox', () => {
+  it('lets the owner keep and change their own records', async () => {
+    await assertSucceeds(setDoc(inboxAt(mine(), ME, 'm1'), record('m1')))
+    await assertSucceeds(updateDoc(inboxAt(mine(), ME, 'm1'), { read: true, updatedAt: 1_700_000_000_001 }))
+    await assertSucceeds(getDoc(inboxAt(mine(), ME, 'm1')))
+    await assertSucceeds(deleteDoc(inboxAt(mine(), ME, 'm1')))
+  })
+
+  it('refuses a body, or a preview long enough to be one', async () => {
+    await assertFails(setDoc(inboxAt(mine(), ME, 'm1'), record('m1', { text: 'The whole email' })))
+    await assertFails(setDoc(inboxAt(mine(), ME, 'm1'), record('m1', { body: 'The whole email' })))
+    await assertFails(setDoc(inboxAt(mine(), ME, 'm1'), record('m1', { snippet: 'x'.repeat(401) })))
+  })
+
+  it('refuses a record filed under the wrong id or missing its times', async () => {
+    await assertFails(setDoc(inboxAt(mine(), ME, 'm1'), record('m2')))
+    await assertFails(setDoc(inboxAt(mine(), ME, 'm1'), record('m1', { receivedAt: 'yesterday' })))
+  })
+
+  it('is closed to everyone else', async () => {
+    await env.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(inboxAt(admin.firestore(), ME, 'm1'), record('m1'))
+    })
+    await assertFails(getDoc(inboxAt(theirs(), ME, 'm1')))
+    await assertFails(setDoc(inboxAt(theirs(), ME, 'm1'), record('m1')))
+    await assertFails(getDoc(inboxAt(strangers(), ME, 'm1')))
+  })
+})
+
+describe('shared settings', () => {
+  it('lets the owner keep the accounts list, the reader claim and the inbox rules', async () => {
+    await assertSucceeds(
+      setDoc(settingAt(mine(), ME, 'accounts'), { phone: { accounts: [{ sub: 's', email: 'me@gmail.com', role: 'owner', services: ['mail'] }], updatedAt: 1 } }),
+    )
+    await assertSucceeds(setDoc(settingAt(mine(), ME, 'reader'), { lease: { deviceId: 'pc', kind: 'desktop', heartbeatAt: 1 }, cursors: {} }))
+    await assertSucceeds(setDoc(settingAt(mine(), ME, 'inbox'), { senders: { 'a@b.com': 'important' }, autoTasks: true, updatedAt: 1 }))
+    await assertSucceeds(getDoc(settingAt(mine(), ME, 'reader')))
+  })
+
+  it('keeps the AI key for its owner alone, and only a key', async () => {
+    await assertSucceeds(setDoc(settingAt(mine(), ME, 'ai'), { key: FAKE_KEY, updatedAt: 1 }))
+    await assertSucceeds(getDoc(settingAt(mine(), ME, 'ai')))
+    await assertFails(getDoc(settingAt(theirs(), ME, 'ai')))
+    await assertFails(setDoc(settingAt(theirs(), ME, 'ai'), { key: FAKE_KEY, updatedAt: 1 }))
+    await assertFails(setDoc(settingAt(mine(), ME, 'ai'), { key: 'not a key', updatedAt: 1 }))
+    await assertFails(setDoc(settingAt(mine(), ME, 'ai'), { updatedAt: 1 }))
+    await assertSucceeds(deleteDoc(settingAt(mine(), ME, 'ai')))
+  })
+
+  it('never takes a Google token', async () => {
+    await assertFails(setDoc(settingAt(mine(), ME, 'accounts'), { refreshToken: 'abc' }))
+  })
+
+  it('takes no settings document it does not know', async () => {
+    await assertFails(setDoc(settingAt(mine(), ME, 'anything'), { a: 1 }))
+    await assertFails(getDoc(settingAt(mine(), ME, 'anything')))
+  })
+
+  it('is closed to everyone else', async () => {
+    await assertFails(setDoc(settingAt(theirs(), ME, 'inbox'), { autoTasks: true }))
+    await assertFails(getDoc(settingAt(strangers(), ME, 'reader')))
   })
 })
 

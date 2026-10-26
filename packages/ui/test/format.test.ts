@@ -1,6 +1,6 @@
 import { buildRecurrence, createReminder, snoozeReminder, URGENCY_LEVELS } from '@cairn/core'
 import { describe, expect, it } from 'vitest'
-import { formatDue, formatReminderWhen, URGENCY } from '../src'
+import { formatAgo, formatDue, formatReminderWhen, URGENCY } from '../src'
 
 const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime()
 const NOW = at(2026, 9, 14, 10)
@@ -42,5 +42,14 @@ describe('tokens', () => {
   it('covers every urgency level with a distinct symbol', () => {
     expect(Object.keys(URGENCY).sort()).toEqual([...URGENCY_LEVELS].sort())
     expect(new Set(Object.values(URGENCY).map((t) => t.symbol)).size).toBe(URGENCY_LEVELS.length)
+  })
+})
+
+describe('formatAgo', () => {
+  it('says how long ago, briefly', () => {
+    expect(formatAgo(NOW - 20_000, NOW)).toBe('just now')
+    expect(formatAgo(NOW - 4 * 60_000, NOW)).toBe('4 min ago')
+    expect(formatAgo(NOW - 125 * 60_000, NOW)).toBe('2 h ago')
+    expect(formatAgo(at(2026, 9, 1, 9), NOW, en)).toBe('Sep 1')
   })
 })

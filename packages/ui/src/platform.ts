@@ -1,4 +1,4 @@
-import type { KeyValueStore } from '@cairn/sync'
+import type { AiFetch, KeyValueStore } from '@cairn/sync'
 
 export type PermissionState = 'granted' | 'denied' | 'default'
 
@@ -48,4 +48,10 @@ export interface Platform {
    * can then say so itself, naming the file to fill in.
    */
   googleClientSecret(): string | undefined
+  /**
+   * How to reach NVIDIA's API, when the host's own fetch cannot: a web view
+   * is held to CORS, which NVIDIA's server-to-server API does not answer.
+   * Absent, the global fetch is used.
+   */
+  readonly aiFetch?: AiFetch
 }

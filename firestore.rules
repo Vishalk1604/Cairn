@@ -65,5 +65,37 @@ service cloud.firestore {
     match /users/{userId}/summary/{summaryId} {
       allow read, write: if signedInAs(userId);
     }
+
+    // The shared inbox: what the device reading Gmail and Classroom made of
+    // each message, so every device shows the same one. A record is a
+    // summary, never the message: the preview is capped, and a body is
+    // refused outright.
+    match /users/{userId}/inbox/{messageId} {
+      allow read, delete: if signedInAs(userId);
+      allow create, update: if signedInAs(userId)
+        && request.resource.data.id == messageId
+        && request.resource.data.account is string
+        && request.resource.data.from is string
+        && request.resource.data.subject is string
+        && request.resource.data.snippet is string
+        && request.resource.data.snippet.size() <= 400
+        && request.resource.data.receivedAt is number
+        && request.resource.data.foundAt is number
+        && request.resource.data.updatedAt is number
+        && !('text' in request.resource.data)
+        && !('body' in request.resource.data);
+    }
+
+    // A few small shared settings: which accounts each device has connected
+    // and for what, which device reads the mail, the person's rules for it,
+    // and their own AI key. Never a Google token: each device signs in for
+    // itself. The key is checked to be one, so nothing else lands there.
+    match /users/{userId}/settings/{name} {
+      allow read, delete: if signedInAs(userId) && name in ['accounts', 'reader', 'inbox', 'ai'];
+      allow create, update: if signedInAs(userId)
+        && name in ['accounts', 'reader', 'inbox', 'ai']
+        && !request.resource.data.keys().hasAny(['refreshToken', 'accessToken', 'idToken'])
+        && (name != 'ai' || (request.resource.data.key is string && request.resource.data.key.matches('nvapi-[A-Za-z0-9_-]{20,200}')));
+    }
   }
 }

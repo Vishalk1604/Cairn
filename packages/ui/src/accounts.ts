@@ -233,3 +233,84 @@ export async function accessTokenFor(platform: Platform, account: Account): Prom
 function forgetToken(sub: string): void {
   tokens.delete(sub)
 }
+
+/**
+ * One kind of access an account can have granted. Announcements are kept
+ * apart from the rest of Classroom because accounts connected before Cairn
+ * read them hold Classroom without them.
+ */
+export type Service = 'mail' | 'classroom' | 'announcements' | 'files'
+
+export const SERVICE_NAMES: Record<Service, string> = {
+  mail: 'Gmail',
+  classroom: 'Classroom',
+  announcements: 'Classroom announcements',
+  files: 'Classroom files',
+}
+
+/**
+ * What a device says about one of its accounts in the cloud, so the other
+ * device can offer to match it. No token, ever: each device runs its own
+ * consent, because the phone's and the computer's Google clients differ and
+ * a refresh token issued to one is useless to the other.
+ */
+export interface AccountRecord {
+  sub: string
+  email: string
+  role: AccountRole
+  services: Service[]
+}
+
+/** The accounts document: each device's own list, written only by that device. */
+export type AccountsRegistry = Partial<Record<'phone' | 'desktop', { accounts: AccountRecord[]; updatedAt: number }>>
+
+export function servicesOf(account: Account): Service[] {
+  const features = featuresOf(account)
+  const out: Service[] = []
+  if (features.mail) out.push('mail')
+  if (features.classroom) out.push('classroom')
+  if (features.classroom && readsAnnouncements(account)) out.push('announcements')
+  if (features.files) out.push('files')
+  return out
+}
+
+export function accountRecords(accounts: readonly Account[]): AccountRecord[] {
+  return accounts.map((a) => ({ sub: a.identity.sub, email: a.identity.email, role: a.role, services: servicesOf(a) }))
+}
+
+/** Something another device can read that this one cannot, and how to put it right. */
+export interface AccountGap {
+  sub: string
+  email: string
+  role: AccountRole
+  /** Missing here. */
+  missing: Service[]
+  /** The account here, when it is connected but short of a permission. */
+  account?: Account
+  /** What to ask Google for: what is already granted here, and what is missing. */
+  features: SourceFeatures
+}
+
+/**
+ * The accounts and permissions another device has that this one lacks.
+ * `ignore` leaves out what this device has no use for — Classroom files on a
+ * phone, which has nowhere to save them.
+ */
+export function accountGaps(theirs: readonly AccountRecord[], mine: readonly Account[], options: { ignore?: readonly Service[] } = {}): AccountGap[] {
+  const ignore = new Set(options.ignore ?? [])
+  const gaps: AccountGap[] = []
+  for (const record of theirs) {
+    const local = mine.find((a) => a.identity.sub === record.sub)
+    const have = new Set(local ? servicesOf(local) : [])
+    const missing = record.services.filter((s) => !ignore.has(s) && !have.has(s))
+    // An account with nothing to read is only a sign-in; there is nothing to match.
+    if (missing.length === 0) continue
+    const features: SourceFeatures = {
+      mail: have.has('mail') || missing.includes('mail'),
+      classroom: have.has('classroom') || missing.some((s) => s === 'classroom' || s === 'announcements'),
+      ...(have.has('files') || missing.includes('files') ? { files: true } : {}),
+    }
+    gaps.push({ sub: record.sub, email: record.email, role: local?.role ?? record.role, missing, ...(local ? { account: local } : {}), features })
+  }
+  return gaps
+}

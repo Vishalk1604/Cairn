@@ -32,6 +32,8 @@ export interface ClassroomPost {
   due?: { dueAt: number; allDay: boolean }
   /** The post in Classroom. */
   link?: string
+  /** Coursework already handed in or returned when it was found: nothing left to do. */
+  submitted?: boolean
 }
 
 export type MailKind = 'classroom' | 'deadline' | 'other'
