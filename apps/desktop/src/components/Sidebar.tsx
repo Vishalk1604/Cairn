@@ -1,8 +1,8 @@
 import { isRealFolder, type Folder } from '@cairn/ui'
 import type { ReactNode } from 'react'
-import { DoneIcon, FolderIcon, NotesIcon, PinIcon, SettingsIcon, TasksIcon } from './icons'
+import { ClassIcon, DoneIcon, FolderIcon, InboxIcon, NotesIcon, PinIcon, SettingsIcon, TasksIcon } from './icons'
 
-export type Section = 'tasks' | 'notes' | 'done' | 'settings'
+export type Section = 'tasks' | 'notes' | 'inbox' | 'classroom' | 'done' | 'settings' | 'bin'
 
 interface Props {
   section: Section
@@ -11,6 +11,8 @@ interface Props {
   pinned: readonly string[]
   taskCount: number
   overdue: number
+  /** New important mail and new Classroom posts since each was last opened. */
+  unseen: { inbox: number; classroom: number }
   onSection: (section: Section) => void
   onFolder: (folder: string) => void
   onTogglePin?: (tag: string) => void
@@ -20,7 +22,7 @@ interface Props {
  * The full app's left column: where you are, and every folder at a glance.
  * Folders are note tags, as on the phone, so they list under Notes.
  */
-export function Sidebar({ section, folder, folders, pinned, taskCount, overdue, onSection, onFolder, onTogglePin }: Props) {
+export function Sidebar({ section, folder, folders, pinned, taskCount, overdue, unseen, onSection, onFolder, onTogglePin }: Props) {
   return (
     <nav className="sidebar" aria-label="Cairn">
       <div className="nav-group">
@@ -29,6 +31,12 @@ export function Sidebar({ section, folder, folders, pinned, taskCount, overdue, 
         </NavItem>
         <NavItem icon={<NotesIcon />} label="Notes" on={section === 'notes' && folder === ''} onClick={() => onFolder('')}>
           <span className="nav-count">{folders[0]?.count || ''}</span>
+        </NavItem>
+        <NavItem icon={<InboxIcon />} label="Inbox" on={section === 'inbox'} onClick={() => onSection('inbox')}>
+          {unseen.inbox > 0 && <span className="nav-badge">{unseen.inbox} new</span>}
+        </NavItem>
+        <NavItem icon={<ClassIcon />} label="Classroom" on={section === 'classroom'} onClick={() => onSection('classroom')}>
+          {unseen.classroom > 0 && <span className="nav-badge">{unseen.classroom} new</span>}
         </NavItem>
         <NavItem icon={<DoneIcon />} label="Completed" on={section === 'done'} onClick={() => onSection('done')} />
       </div>
@@ -62,7 +70,7 @@ export function Sidebar({ section, folder, folders, pinned, taskCount, overdue, 
       </div>
 
       <div className="nav-foot">
-        <NavItem icon={<SettingsIcon />} label="Settings" on={section === 'settings'} onClick={() => onSection('settings')} />
+        <NavItem icon={<SettingsIcon />} label="Settings" on={section === 'settings' || section === 'bin'} onClick={() => onSection('settings')} />
       </div>
     </nav>
   )

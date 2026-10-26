@@ -283,6 +283,15 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.nav-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .nav-badge.danger {
   padding: 2px 8px;
   border-radius: 999px;
@@ -1777,4 +1786,376 @@ dialog::backdrop {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ── Sync, inbox and Classroom ───────────────────────────────────────── */
+
+.sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sync-button {
+  color: var(--muted);
+}
+
+.sync-button.busy {
+  color: var(--accent);
+}
+
+.sync-button.busy svg {
+  animation: spin 0.9s linear infinite;
+}
+
+.sync-text {
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.account-chips {
+  margin: -6px 0 10px;
+}
+
+.account-chips .chip {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+.account-only {
+  margin: -8px 0 12px 4px;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.notice {
+  max-width: 880px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.notice.accent {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.notice.danger {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  color: var(--danger);
+  white-space: pre-line;
+}
+
+.notice-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notice-text strong {
+  font-weight: 600;
+}
+
+.notice-text span {
+  color: var(--muted);
+}
+
+.mail-list {
+  max-width: 880px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+  animation: rise 0.18s ease both;
+}
+
+.mail.done {
+  opacity: 0.6;
+}
+
+.mail-open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.mail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.mail-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.folder-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.mail-subject {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mail.read .mail-subject {
+  font-weight: 600;
+}
+
+.mail-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mail-why {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.mail-tags {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.mail-due {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 3px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  font-size: 12.5px;
+}
+
+.mail-foot .in-tasks {
+  color: var(--faint);
+}
+
+.mail-foot .accent-button {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+.view-status {
+  max-width: 880px;
+  margin: 18px 0 0;
+  color: var(--faint);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.files-panel {
+  max-width: 880px;
+  margin-bottom: 18px;
+}
+
+.files-panel .settings-section {
+  margin-bottom: 0;
+}
+
+.bin-list .settings-row-title {
+  font-size: 15px;
+}
+
+.back-link {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+}
+
+.back-link:hover {
+  background: var(--surface-high);
+  color: var(--fg);
+}
+
+.settings-row.link {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.settings-row.link:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--fg) 8%);
+}
+
+.chevron {
+  color: var(--faint);
+  font-size: 20px;
+}
+
+.dialog-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dialog-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-input {
+  width: 100%;
+  min-height: 110px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-high);
+  color: var(--fg);
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.profile-input {
+  width: 100%;
+  min-height: 140px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-high);
+  color: var(--fg);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.shell.widget .seg button {
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.shell.widget .notice {
+  padding: 10px 12px;
+}
+
+.shell.widget .mail {
+  padding: 12px 14px;
+}
+
+.shell.widget .view-head.keep {
+  display: flex;
+  margin: 2px 0 8px;
+}
+
+.shell.widget .view-status {
+  margin-top: 12px;
+}
+
+.files-hint {
+  max-width: 880px;
+  margin: -4px 4px 12px;
+}
+
+.seg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* An account opens its own group of rows. */
+.settings-row.head {
+  background: color-mix(in srgb, var(--surface) 88%, var(--fg) 4%);
+}
+
+.settings-row.head .settings-row-title {
+  font-weight: 600;
+}
+
+.settings-row + .settings-row.head {
+  border-top: 6px solid var(--bg);
+}
+
+.shell.widget .settings-row .sync-text {
+  display: none;
 }

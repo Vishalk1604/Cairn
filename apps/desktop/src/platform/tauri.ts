@@ -1,10 +1,11 @@
 import type { UrgencyLevel } from '@cairn/core'
-import type { KeyValueStore } from '@cairn/sync'
+import type { AiFetch, KeyValueStore } from '@cairn/sync'
 import type { AppNotification, PermissionState } from '@cairn/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { fetch as shellFetch } from '@tauri-apps/plugin-http'
 import { isPermissionGranted, onAction, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { load, type Store } from '@tauri-apps/plugin-store'
 import { googleClientId, googleClientSecret } from './googleClient'
@@ -75,6 +76,13 @@ const classroom: DesktopClassroom = {
     invoke<string>('classroom_write', bytes, { headers: { 'x-dir': encodeURIComponent(folder), 'x-path': encodeURIComponent(path) } }),
   open: (folder) => invoke('media_open', { dir: folder }),
 }
+
+/**
+ * NVIDIA's API sends no CORS headers, so a request from the web view would
+ * be refused before it left. This one is made by the shell instead, which
+ * the capabilities file allows for NVIDIA's addresses and nothing else.
+ */
+const aiFetch: AiFetch = (url, init) => shellFetch(url, init as RequestInit)
 
 export const tauriPlatform: DesktopPlatform = {
   name: 'tauri',
@@ -155,6 +163,7 @@ export const tauriPlatform: DesktopPlatform = {
 
   media,
   classroom,
+  aiFetch,
 
   googleClientId,
   googleClientSecret,

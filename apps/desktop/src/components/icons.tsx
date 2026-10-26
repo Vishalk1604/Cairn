@@ -141,3 +141,30 @@ export const SnoozeIcon = (p: Props) => (
     <path d="M12 9.5V13l2.5 1.5M5 4L2.5 6.5M19 4l2.5 2.5" />
   </Icon>
 )
+
+export const InboxIcon = (p: Props) => (
+  <Icon {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="3" />
+    <path d="M3.5 7l8.5 6 8.5-6" />
+  </Icon>
+)
+
+export const ClassIcon = (p: Props) => (
+  <Icon {...p}>
+    <path d="M2.5 9.5L12 5l9.5 4.5L12 14z" />
+    <path d="M6.5 11.5v4c0 1.4 2.5 3 5.5 3s5.5-1.6 5.5-3v-4M21.5 9.5v5" />
+  </Icon>
+)
+
+export const SyncIcon = (p: Props) => (
+  <Icon {...p}>
+    <path d="M20 12a8 8 0 0 1-13.7 5.6M4 12a8 8 0 0 1 13.7-5.6" />
+    <path d="M17.7 2.8v3.8h-3.8M6.3 21.2v-3.8h3.8" />
+  </Icon>
+)
+
+export const BinIcon = (p: Props) => (
+  <Icon {...p}>
+    <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6" />
+  </Icon>
+)

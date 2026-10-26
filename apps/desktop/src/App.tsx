@@ -6,13 +6,17 @@ import { useActions } from './app/actions'
 import { useCairn } from './app/context'
 import { usePinnedFolders } from './app/folders'
 import { useNow, useObserved } from './app/hooks'
+import { useInbox } from './app/inbox'
 import { useAlertScheduler } from './app/useAlertScheduler'
 import { useWide } from './app/useWide'
+import { ClassroomView } from './components/ClassroomView'
 import { DoneIcon, SettingsIcon } from './components/icons'
+import { InboxView } from './components/InboxView'
 import { NoteEditor } from './components/NoteEditor'
 import { NotesView } from './components/NotesView'
 import { NotificationBanner } from './components/NotificationBanner'
 import { QuickCapture } from './components/QuickCapture'
+import { RecycleBinView } from './components/RecycleBinView'
 import { SettingsView } from './components/SettingsView'
 import { Sidebar, type Section } from './components/Sidebar'
 import { TaskPanel } from './components/TaskPanel'
@@ -40,6 +44,8 @@ export function App() {
   const [section, setSection] = useState<Section>('tasks')
   const [folder, setFolder] = useState(ALL_FOLDER)
   const [editing, setEditing] = useState<Editing | null>(null)
+  const [filesOpen, setFilesOpen] = useState(false)
+  const inbox = useInbox()
   const captureRef = useRef<HTMLInputElement>(null)
   const actions = useActions()
 
@@ -101,6 +107,7 @@ export function App() {
   })
 
   const overdue = active.filter((r) => urgencyOf(r, now) === 'overdue').length
+  const unseen = { inbox: section === 'inbox' ? 0 : inbox.unseen, classroom: section === 'classroom' ? 0 : inbox.unseenClassroom }
   const go = (next: Section) => {
     setEditing(null)
     setSection(next)
@@ -122,7 +129,19 @@ export function App() {
     ) : section === 'done' ? (
       <DoneView now={now} />
     ) : section === 'settings' ? (
-      <SettingsView />
+      <SettingsView
+        onBin={() => go('bin')}
+        onClassroomFiles={() => {
+          setFilesOpen(true)
+          go('classroom')
+        }}
+      />
+    ) : section === 'bin' ? (
+      <RecycleBinView onBack={() => go('settings')} />
+    ) : section === 'inbox' ? (
+      <InboxView onSettings={() => go('settings')} />
+    ) : section === 'classroom' ? (
+      <ClassroomView onSettings={() => go('settings')} files={filesOpen} onFiles={setFilesOpen} />
     ) : (
       <TasksView
         active={active}
@@ -145,6 +164,7 @@ export function App() {
             pinned={pinned}
             taskCount={active.length}
             overdue={overdue}
+            unseen={unseen}
             onSection={go}
             onFolder={(f) => {
               go('notes')
@@ -158,7 +178,7 @@ export function App() {
             <NoteEditor key={editing.note?.id ?? 'new'} note={editing.note} onClose={() => setEditing(null)} />
           ) : (
             <>
-              {!wide && <WidgetNav section={section} taskCount={active.length} overdue={overdue} onSection={go} />}
+              {!wide && <WidgetNav section={section} taskCount={active.length} overdue={overdue} unseen={unseen} onSection={go} />}
               <NotificationBanner />
               <div className="scroll">{view}</div>
             </>
@@ -179,7 +199,19 @@ export function App() {
 }
 
 /** The widget's switcher, in place of the full app's sidebar. */
-function WidgetNav({ section, taskCount, overdue, onSection }: { section: Section; taskCount: number; overdue: number; onSection: (s: Section) => void }) {
+function WidgetNav({
+  section,
+  taskCount,
+  overdue,
+  unseen,
+  onSection,
+}: {
+  section: Section
+  taskCount: number
+  overdue: number
+  unseen: { inbox: number; classroom: number }
+  onSection: (s: Section) => void
+}) {
   return (
     <nav className="widget-nav" aria-label="Cairn">
       <div className="seg" role="tablist">
@@ -190,12 +222,20 @@ function WidgetNav({ section, taskCount, overdue, onSection }: { section: Sectio
         <button type="button" role="tab" aria-selected={section === 'notes'} onClick={() => onSection('notes')}>
           Notes
         </button>
+        <button type="button" role="tab" aria-selected={section === 'inbox'} onClick={() => onSection('inbox')}>
+          Inbox
+          {unseen.inbox > 0 && <span className="seg-dot" aria-label={`${unseen.inbox} new`} />}
+        </button>
+        <button type="button" role="tab" aria-selected={section === 'classroom'} onClick={() => onSection('classroom')}>
+          Classroom
+          {unseen.classroom > 0 && <span className="seg-dot" aria-label={`${unseen.classroom} new`} />}
+        </button>
       </div>
       <span className="spacer" />
       <button type="button" className={`icon ${section === 'done' ? 'on' : ''}`} aria-label="Completed" title="Completed" onClick={() => onSection('done')}>
         <DoneIcon />
       </button>
-      <button type="button" className={`icon ${section === 'settings' ? 'on' : ''}`} aria-label="Settings" title="Settings" onClick={() => onSection('settings')}>
+      <button type="button" className={`icon ${section === 'settings' || section === 'bin' ? 'on' : ''}`} aria-label="Settings" title="Settings" onClick={() => onSection('settings')}>
         <SettingsIcon />
       </button>
     </nav>

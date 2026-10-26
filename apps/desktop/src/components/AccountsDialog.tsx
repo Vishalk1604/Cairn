@@ -11,12 +11,12 @@ import { useModal } from '../app/useModal'
  * losing one of those, when a university closes the account, takes nothing
  * with it.
  */
-export function AccountsDialog({ onClose }: { onClose: () => void }) {
+export function AccountsDialog({ onClose, adding: startAdding }: { onClose: () => void; adding?: boolean }) {
   const { accounts, signOut, connectSource, regrant, disconnectSource } = useCairn()
   const modal = useModal(onClose)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [adding, setAdding] = useState<SourceFeatures | null>(null)
+  const [adding, setAdding] = useState<SourceFeatures | null>(startAdding ? { mail: true, classroom: true } : null)
 
   const holder = owner(accounts)
   const others = sources(accounts)

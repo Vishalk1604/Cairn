@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { CairnProvider } from './app/CairnProvider'
 import { ClassroomFilesProvider } from './app/classroomFiles'
+import { InboxProvider } from './app/inbox'
 import { MediaProvider } from './app/media'
 import { ToastProvider } from './app/toast'
 import { detectPlatform } from './platform'
@@ -13,9 +14,11 @@ createRoot(document.getElementById('root')!).render(
     <CairnProvider platform={detectPlatform()}>
       <MediaProvider>
         <ClassroomFilesProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
+          <InboxProvider>
+            <ToastProvider>
+              <App />
+            </ToastProvider>
+          </InboxProvider>
         </ClassroomFilesProvider>
       </MediaProvider>
     </CairnProvider>

@@ -3,6 +3,7 @@ import type { Entity } from '@cairn/core'
 import {
   openLocalRepositories,
   openSyncedRepositories,
+  settled,
   signInToFirebase,
   signOutOfFirebase,
   type NoteRepository,
@@ -17,6 +18,7 @@ import {
   loadAccounts,
   owner,
   type Account,
+  type AccountGap,
   type SourceFeatures,
 } from '@cairn/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -42,6 +44,8 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
   const [store, setStore] = useState<Store | null>(null)
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [syncing, setSyncing] = useState(false)
+  const [syncedAt, setSyncedAt] = useState<number | null>(null)
   // Kept so switching to the synced store can carry local work up with it.
   const local = useRef<Store | null>(null)
 
@@ -75,6 +79,8 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
         await carryLocalWorkUp(platform, uid, local.current, synced)
         // Notes thirty days in the recycle bin are deleted for good, from the
         // cloud too, once the server has said what it holds.
+        void Promise.all([synced.notes.serverSynced(), synced.reminders.serverSynced()])
+          .then(() => setSyncedAt(Date.now()))
         void Promise.all([synced.notes.serverSynced(), synced.reminders.serverSynced()])
           .then(() => Promise.all([synced.notes.purgeTombstones(Date.now()), synced.reminders.purgeTombstones(Date.now())]))
           .catch((error: unknown) => console.error('Could not empty the recycle bin', error))
@@ -153,6 +159,33 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
     [platform],
   )
 
+  const matchAccount = useCallback(
+    async (gap: AccountGap) => {
+      const expect = gap.account?.identity ?? { sub: gap.sub, email: gap.email, emailVerified: true }
+      setAccounts(await connect(platform, { role: gap.role, features: gap.features, expect }))
+    },
+    [platform],
+  )
+
+  /**
+   * The desktop keeps a live, lasting copy of the cloud, so syncing is
+   * making sure everything written here has reached it — or, after a long
+   * time offline, starting again from the account.
+   */
+  const runSync = useCallback(async () => {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      if (auth.status === 'error') await startSyncing(accounts)
+      else await settled()
+      setSyncedAt(Date.now())
+    } catch (error) {
+      setAuth({ status: 'error', message: message(error) })
+    } finally {
+      setSyncing(false)
+    }
+  }, [syncing, auth.status, accounts, startSyncing])
+
   const signOut = useCallback(async () => {
     store?.close?.()
     await forgetAllAccounts(platform)
@@ -177,9 +210,11 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
             connectSource,
             regrant,
             disconnectSource,
+            matchAccount,
+            sync: { busy: syncing || auth.status === 'connecting', at: syncedAt, run: runSync },
           }
         : null,
-    [platform, store, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource],
+    [platform, store, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource, matchAccount, syncing, syncedAt, runSync],
   )
 
   if (!value) return null

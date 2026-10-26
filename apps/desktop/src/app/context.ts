@@ -1,5 +1,5 @@
 import type { NoteRepository, ReminderRepository } from '@cairn/sync'
-import type { Account, SourceFeatures } from '@cairn/ui'
+import type { Account, AccountGap, SourceFeatures } from '@cairn/ui'
 import { createContext, useContext } from 'react'
 import type { DesktopPlatform } from '../platform'
 import type { AuthState } from './CairnProvider'
@@ -22,6 +22,10 @@ export interface Cairn {
   /** Asks an account already connected for one more permission. */
   regrant(account: Account, features: SourceFeatures): Promise<void>
   disconnectSource(sub: string): Promise<void>
+  /** Connects an account, or a permission, the phone has and this computer lacks. Google asks here separately. */
+  matchAccount(gap: AccountGap): Promise<void>
+  /** Notes and tasks reaching the cloud. */
+  sync: { busy: boolean; at: number | null; run(): Promise<void> }
 }
 
 export const CairnContext = createContext<Cairn | null>(null)

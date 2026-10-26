@@ -2,8 +2,10 @@ import type { Note } from '@cairn/core'
 import { ALL_FOLDER, noteHeading, noteLines, notesInFolder, noteTimestamp, type Folder } from '@cairn/ui'
 import { memo, useMemo, useState, type ReactNode } from 'react'
 import { useActions } from '../app/actions'
+import { useCairn } from '../app/context'
 import { useMediaUrl } from '../app/media'
 import { NotesIcon, PinIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
+import { SyncButton } from './SyncButton'
 
 interface Props {
   notes: readonly Note[]
@@ -23,6 +25,7 @@ interface Props {
  */
 export function NotesView({ notes, folders, folder, wide, capture, onFolder, onOpen, onNew }: Props) {
   const [search, setSearch] = useState('')
+  const { auth, sync } = useCairn()
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -39,6 +42,7 @@ export function NotesView({ notes, folders, folder, wide, capture, onFolder, onO
         <h1 className="view-title">{title}</h1>
         <span className="view-sub">{shown.length === 1 ? '1 note' : `${shown.length} notes`}</span>
         <span className="spacer" />
+        {auth.status !== 'local' && auth.status !== 'loading' && <SyncButton busy={sync.busy} at={sync.at} onClick={() => void sync.run()} label="Sync notes and tasks" caption={wide} />}
         <label className="search-box">
           <SearchIcon size={16} />
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search notes" aria-label="Search notes" />
