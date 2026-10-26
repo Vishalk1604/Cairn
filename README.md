@@ -18,8 +18,9 @@ Planned for v1:
 - **Windows desktop widget.** A frameless, translucent panel that lives on your desktop, plus a global quick-capture hotkey (`Ctrl+Shift+Space`).
 - **Sync** between phone and desktop through your Google account.
 - **Gmail triage** (optional). Sorts incoming mail into important and not, tells you why, and learns from your corrections.
-- **Google Classroom** (optional). New assignments and announcements show in the inbox; one tap makes a reminder with the right due date, and it ticks itself off when you submit.
-- **Classroom files** (Windows, optional). Pick which of your classes to save, newest classes listed first. Notes, slides and worksheets their teachers attach are saved to a folder you choose, a folder per class, and each new one as it is posted. Google Docs and Slides arrive as PDF.
+- **One inbox on both devices.** Whichever device is reading — the computer while Cairn runs in its tray, otherwise the phone — sorts new mail and writes a short summary of each to the cloud, so the phone and the computer show the same Inbox, filtered by account. **Sync now** reads on the device in your hand.
+- **Google Classroom** (optional). New assignments and announcements from every connected account have their own Classroom tab; one tap makes a reminder with the right due date, and it ticks itself off when you submit. Switch on **Automatically add tasks** and they become reminders by themselves, once, on both devices.
+- **Classroom files** (Windows, optional). Behind the gear in the Classroom tab, pick which of your classes to save, newest classes listed first. Notes, slides and worksheets their teachers attach are saved to a folder you choose, a folder per class, and each new one as it is posted. Google Docs and Slides arrive as PDF.
 - **Recycle bin.** Deleted notes wait in **Settings → Recycle bin** for 30 days, then are deleted for good everywhere, their photos and recordings included.
 
 Not in v1: iOS, macOS, Linux, shared notes, attachments, two-way calendar sync, location-based reminders.
@@ -43,24 +44,30 @@ Each state also has a non-color cue, so the widgets stay readable for colorblind
 
 Cairn is designed so that your email never passes through a server we run.
 
-- Gmail and Classroom are read **on your device**, directly from Google. Only the outcome (for example, "a reminder due Friday") is synced.
+- Gmail and Classroom are read **on your device**, directly from Google. Only the outcome is synced: sender, subject, Gmail's short preview, the summary, folder and any deadline — never the message itself.
 - Gmail access is requested only when you turn on mail reading, and is read-only.
 - Google tokens live in the OS keystore (Android Keystore, Windows DPAPI) and are never synced.
-- AI sorting uses NVIDIA's hosted models with **your own API key**, sent straight from your phone. Without a key, mail is checked by fixed rules on the device and nothing goes to an AI service. See [AI sorting](#ai-sorting).
+- AI sorting uses NVIDIA's hosted models with **your own API key**, sent straight from whichever device is reading. The key is kept in your own account so both devices can use it. Without a key, mail is checked by fixed rules on the device and nothing goes to an AI service. See [AI sorting](#ai-sorting).
 
 ## AI sorting
 
-The Android app can sort your mail and Classroom posts with AI: it picks out what matters to you, files each one into a folder it names itself (Hackathons, Jobs, and so on), tags it (`#hackathon #sih`, `#assignment #cs301`), writes a one-line summary, and reads off any deadline or event time. **Add as task** then puts it in Tasks at exactly that time, with those tags. Tell it what matters under **Settings → AI sorting → What matters to you**; marking a sender Important or Not important overrules it from then on. It is off until you add a key, and **every person uses their own key** — Cairn never ships one, so no one's mail goes through anyone else's account and no single key's rate limit is shared.
+Cairn can sort your mail and Classroom posts with AI, on the phone and on the computer alike: it picks out what matters to you, files each one into a folder it names itself (Hackathons, Jobs, and so on), tags it (`#hackathon #sih`, `#assignment #cs301`), writes a one-line summary, and reads off any deadline or event time. **Add as task** then puts it in Tasks at exactly that time, with those tags. Tell it what matters under **Settings → Inbox & AI → What matters to you**; marking a sender Important or Not important overrules it from then on. It is off until you add a key, and **every person uses their own key** — Cairn never ships one, so no one's mail goes through anyone else's account and no single key's rate limit is shared.
 
 To turn it on:
 
-1. Sign in to Cairn on your phone with Google, and switch on mail reading in **Settings**.
-2. In **Settings → AI sorting**, tap **Add an NVIDIA API key**, then **Open the NVIDIA page**. It opens the GPT-OSS 20B page on [build.nvidia.com](https://build.nvidia.com/openai/gpt-oss-20b).
+1. Sign in to Cairn with Google, and switch on mail reading in **Settings**.
+2. In **Settings → Inbox & AI**, tap **Add an NVIDIA API key**, then **Open the NVIDIA page**. It opens the GPT-OSS 20B page on [build.nvidia.com](https://build.nvidia.com/openai/gpt-oss-20b).
 3. Sign in to NVIDIA (a free developer account) and press **Get API Key**, then **Generate Key**. Copy the key it shows: it starts with `nvapi-`. NVIDIA only shows it once, so keep a copy somewhere safe.
 4. Paste it into the box in Cairn. Sample code from that page works too, as long as your key is written into it. Code that reads the key from a setting called `NVIDIA_API_KEY` has no key in it to find, and Cairn says so.
 5. Tap **Check and save**. Cairn finds the key (and the model, if you pasted code), sends one tiny test request, and says which model answered. On NVIDIA's free tier that answer can take a minute or two to arrive.
 
-The key is kept in the phone's secure storage and is only ever sent to NVIDIA. Cairn asks OpenAI's GPT-OSS 20B through NVIDIA's Responses API, and falls back to Nemotron 3.5 Lightning on the same key when it is busy. NVIDIA's free tier queues requests, so a reply can take a minute or two; new mail shows in the Inbox straight away and gets its folder and summary when the reply arrives. The free tier allows about 40 requests a minute per key, far more than one person's mail needs. **Remove key** in the same place turns AI sorting off.
+The key is kept in your Cairn account (readable only by you) and each device's secure storage, so adding it once on either device turns sorting on for both. It is only ever sent to NVIDIA. Cairn asks OpenAI's GPT-OSS 20B through NVIDIA's Responses API, and falls back to Nemotron 3.5 Lightning on the same key when it is busy. NVIDIA's free tier queues requests, so a reply can take a minute or two; new mail shows in the Inbox straight away and gets its folder and summary when the reply arrives. The free tier allows about 40 requests a minute per key, far more than one person's mail needs. **Remove key** in the same place turns AI sorting off everywhere.
+
+### Two devices, one inbox
+
+Only one device reads Gmail and Classroom at a time. The computer goes first: whenever Cairn is running there and can read everything the phone can, it reads every few minutes, sorts with your key, and writes what it found to Firestore. The phone shows those same records, and takes over only when it has not heard from the computer for 15 minutes. **Sync now** in the Inbox or Classroom tab reads on the device you are holding, whoever is reading. Each record is the sender, subject, Gmail's preview, the AI's summary, folder, tags and deadline, which account it came from and whether you opened, hid or made a task of it — never the body — and records are deduplicated by message id, so nothing is read or written twice.
+
+Each device signs in to Google for itself, because the phone and the computer are different OAuth clients. Settings records which accounts each device has connected and for what (never a token); when the phone reads something the computer cannot, the computer says **Connect … to match your phone** and asks Google for exactly that.
 
 ## Tech stack
 
@@ -155,7 +162,7 @@ Things worth knowing about the desktop app:
 - The tray icon is drawn in Rust and takes the colour of your most urgent reminder. Its colours are checked against the shared design tokens by a test, so they cannot drift.
 - `Ctrl+Shift+Space` jumps to the capture box from anywhere. If another app already owns that combination, Cairn says so and the tray menu still works.
 - Cairn starts as a small frameless widget just above the tray, out of the taskbar; clicking the tray icon shows and hides it. The expand button (or a double click on its title bar, or **Open the full app** in the tray menu) fills the screen with the full app: folders down the side, notes as a grid, tasks opening in a panel beside the list. The widget remembers where you last left it.
-- Photos and recordings made on the phone are downloaded from your Drive into a folder you can choose in **Settings → Photos and recordings** (by default `Media` inside Cairn's app data folder). When one is removed on the phone, the copy on the computer goes too. Only Cairn's own files in that folder are ever touched.
+- Photos and recordings made on the phone are downloaded from your Drive into a folder you can choose in **Settings → Media** (by default `Media` inside Cairn's app data folder). When one is removed on the phone, the copy on the computer goes too. Only Cairn's own files in that folder are ever touched.
 
 On Android, reminders are handed to the system alarm clock ahead of time, so they fire with the app closed and no network. Cairn asks for exact alarms, because without them Android is free to delay a reminder by several minutes while the phone is dozing. It deliberately does not ask for storage or screen-overlay access, which React Native would otherwise request by default.
 
