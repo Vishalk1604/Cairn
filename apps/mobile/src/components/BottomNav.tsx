@@ -2,22 +2,23 @@ import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { space, useColors } from '../theme'
-import { Glyph, MailIcon } from '../ui/icons'
+import { ClassIcon, Glyph, MailIcon } from '../ui/icons'
 import { settle, Tap } from '../ui/motion'
 
-export type Section = 'notes' | 'tasks' | 'inbox'
+export type Section = 'notes' | 'tasks' | 'inbox' | 'classroom'
 
 const SECTIONS: { id: Section; label: string; glyph: string }[] = [
   { id: 'notes', label: 'Notes', glyph: '≡' },
   { id: 'tasks', label: 'Tasks', glyph: '☑' },
   { id: 'inbox', label: 'Inbox', glyph: '✉' },
+  { id: 'classroom', label: 'Classroom', glyph: '' },
 ]
 
 /**
  * The tab bar. The highlight behind the current tab slides to the next one on
  * a spring rather than jumping, so switching reads as one motion.
  */
-export function BottomNav({ current, badge, onSelect }: { current: Section; badge?: number; onSelect: (section: Section) => void }) {
+export function BottomNav({ current, badges = {}, onSelect }: { current: Section; badges?: Partial<Record<Section, number>>; onSelect: (section: Section) => void }) {
   const c = useColors()
   const [width, setWidth] = useState(0)
   const index = SECTIONS.findIndex((s) => s.id === current)
@@ -49,10 +50,12 @@ export function BottomNav({ current, badge, onSelect }: { current: Section; badg
             <View>
               {s.id === 'inbox' ? (
                 <MailIcon color={on ? c.fg : c.faint} size={22} />
+              ) : s.id === 'classroom' ? (
+                <ClassIcon color={on ? c.fg : c.faint} size={22} />
               ) : (
                 <Glyph char={s.glyph} color={on ? c.fg : c.faint} size={20} weight={on ? '700' : '400'} />
               )}
-              {s.id === 'inbox' && badge ? <View style={[styles.dot, { backgroundColor: c.accent }]} /> : null}
+              {badges[s.id] ? <View style={[styles.dot, { backgroundColor: c.accent }]} /> : null}
             </View>
             <Text style={{ color: on ? c.fg : c.faint, fontSize: 12, fontWeight: on ? '700' : '400' }}>{s.label}</Text>
           </Tap>

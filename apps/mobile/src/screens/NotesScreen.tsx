@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { BackHandler, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { LayoutAnimationConfig, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { NoteCard, previewOf } from '../components/NoteCard'
+import { SyncButton } from '../components/SyncButton'
 import { useActions } from '../state/actions'
 import { useCairn } from '../state/context'
 import { ALL_FOLDER, foldersOf, isRealFolder, moveToFolder, notesInFolder, usePinnedFolders, type Folder } from '../state/folders'
@@ -53,7 +54,7 @@ export interface NotesScreenProps {
 
 export function NotesScreen({ onOpen, onNew, onFolders, onSettings, onSelectingChange, folder, onFolderChange }: NotesScreenProps) {
   const c = useColors()
-  const { notes } = useCairn()
+  const { notes, auth, sync } = useCairn()
   const actions = useActions()
   const all = useObserved(notes, ALL)
   const { preferences } = usePreferences()
@@ -137,6 +138,7 @@ export function NotesScreen({ onOpen, onNew, onFolders, onSettings, onSelectingC
         </Animated.View>
       ) : (
         <View style={styles.bar}>
+          {auth.status === 'synced' || auth.status === 'connecting' ? <SyncButton busy={sync.busy} at={sync.at} onPress={() => void sync.run()} label="Sync notes and tasks" caption="after" /> : null}
           <View style={styles.spacer} />
           <Tap onPress={() => setSearch(search === null ? '' : null)} scaleTo={0.92} style={styles.icon} accessibilityLabel="Search notes">
             <Glyph char="⌕" color={c.fg} size={24} />

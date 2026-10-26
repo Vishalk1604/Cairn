@@ -11,6 +11,7 @@ import { BottomNav, type Section } from './components/BottomNav'
 import { SnoozeSheet } from './components/SnoozeSheet'
 import { onNotificationOpened, scheduleNotifications, setUpNotifications, setUrgentAlerts } from './platform/notifications'
 import { storage } from './platform/storage'
+import { ClassroomScreen } from './screens/ClassroomScreen'
 import { EditorScreen } from './screens/EditorScreen'
 import { FoldersScreen } from './screens/FoldersScreen'
 import { InboxScreen } from './screens/InboxScreen'
@@ -136,7 +137,7 @@ function Main() {
   const editorGone = useCallback(() => setEditing(null), [])
   const closePage = useCallback(() => setPage(null), [])
 
-  const unseen = section === 'inbox' ? 0 : inbox.unseen
+  const badges = { inbox: section === 'inbox' ? 0 : inbox.unseen, classroom: section === 'classroom' ? 0 : inbox.unseenClassroom }
 
   return (
     <View style={[styles.root, { backgroundColor: c.bg }]}>
@@ -157,9 +158,10 @@ function Main() {
             <TasksScreen active={active} now={now} onEdit={(reminder) => setTask({ reminder })} onSnooze={setSnoozing} onMore={(text) => setTask({ text })} />
           )}
           {section === 'inbox' && <InboxScreen onSettings={() => setPage('settings')} />}
+          {section === 'classroom' && <ClassroomScreen onSettings={() => setPage('settings')} />}
         </Animated.View>
 
-        {!selecting && <BottomNav current={section} badge={unseen} onSelect={setSection} />}
+        {!selecting && <BottomNav current={section} badges={badges} onSelect={setSection} />}
       </SafeAreaView>
 
       {page && (

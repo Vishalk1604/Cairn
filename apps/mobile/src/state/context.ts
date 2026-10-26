@@ -6,7 +6,7 @@ import {
   type NoteRepository,
   type ReminderRepository,
 } from '@cairn/sync'
-import { accessTokenFor, owner, type Account, type Platform, type SourceFeatures } from '@cairn/ui'
+import { accessTokenFor, owner, type Account, type AccountGap, type Platform, type SourceFeatures } from '@cairn/ui'
 import { createContext, useContext } from 'react'
 import { storage } from '../platform/storage'
 
@@ -20,6 +20,14 @@ export type AuthState =
   | { status: 'connecting' }
   | { status: 'synced'; email: string }
   | { status: 'error'; message: string }
+
+/** Notes and tasks reaching the cloud: whether a sync is under way, and when one last finished. */
+export interface SyncStatus {
+  busy: boolean
+  at: number | null
+  /** Pulls everything afresh from the cloud and sends anything not yet there. */
+  run(): Promise<void>
+}
 
 export interface Cairn {
   platform: Platform
@@ -36,6 +44,9 @@ export interface Cairn {
   /** Asks Google for more permission; returns the accounts as they now stand. */
   regrant(account: Account, features: SourceFeatures): Promise<Account[]>
   disconnectSource(sub: string): Promise<void>
+  /** Connects an account, or a permission, the computer has and this phone lacks. */
+  matchAccount(gap: AccountGap): Promise<void>
+  sync: SyncStatus
 }
 
 export interface LocalStore {
@@ -55,6 +66,8 @@ export async function openLocal(): Promise<LocalStore> {
 /** What a running sync needs to be told to stop. */
 export interface Sync {
   uid: string
+  /** Resolves once the cloud has answered for both notes and tasks. */
+  ready: Promise<void>
   stop(): void
 }
 
@@ -80,6 +93,7 @@ export async function startSync(local: LocalStore, accounts: readonly Account[],
   void purgeExpired(synced)
   return {
     uid,
+    ready: Promise.all([synced.notes.serverSynced(), synced.reminders.serverSynced()]).then(() => {}),
     stop() {
       for (const stop of stops) stop()
       synced.close()

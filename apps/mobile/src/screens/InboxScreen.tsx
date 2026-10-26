@@ -1,33 +1,27 @@
-import { inboxTaskId } from '@cairn/core'
+import { dueOf, inboxTaskId, isImportant, tagsOf, type InboxRecord, type SenderRule } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
-import { formatDue } from '@cairn/ui'
+import { formatAgo, formatDue, readerStatus, SERVICE_NAMES } from '@cairn/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
-import Animated, { LayoutAnimationConfig, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, { LayoutAnimationConfig } from 'react-native-reanimated'
+import { AccountChips, FilterChip } from '../components/Chips'
+import { SyncButton } from '../components/SyncButton'
 import { openMessage } from '../platform/mail'
 import { useCairn } from '../state/context'
 import { useObserved } from '../state/hooks'
-import { dueOf, isImportant, tagsOf, useInbox, type InboxEntry } from '../state/inbox'
+import { useInbox } from '../state/inbox'
 import { useToast } from '../state/toast'
 import { radius, space, useColors } from '../theme'
-import { MailIcon } from '../ui/icons'
-import { appear, fadeIn, fadeOut, reflow, settle, Tap } from '../ui/motion'
+import { GearIcon, MailIcon } from '../ui/icons'
+import { appear, fadeIn, fadeOut, reflow, Tap } from '../ui/motion'
 
 const EVERY_TASK: ReminderQuery = {}
 
 /** The chips across the top. Folders come from the mail itself, so they appear as mail arrives. */
 type Filter = { kind: 'important' } | { kind: 'folder'; name: string } | { kind: 'rest' }
 
-function sender(from: string): string {
+export function sender(from: string): string {
   return from.replace(/<[^>]+>/, '').replace(/["']/g, '').trim() || from
-}
-
-function ago(t: number, now: number): string {
-  const minutes = Math.round((now - t) / 60000)
-  if (minutes < 60) return `${Math.max(1, minutes)}m`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
 function same(a: Filter, b: Filter): boolean {
@@ -35,12 +29,11 @@ function same(a: Filter, b: Filter): boolean {
 }
 
 /**
- * Mail and Classroom, sorted. With an AI key, every new email, assignment
- * and announcement is read whole and filed: Important collects what needs
- * attention, folders such as Hackathons or Jobs gather what belongs
- * together, and the rest waits under Everything else rather than vanishing.
- * A deadline or a set time waits for a tap on Add as task, which puts it in
- * Tasks at that time, with the model's tags.
+ * Gmail, sorted. With an AI key, every new email is read whole and filed:
+ * Important collects what needs attention, folders such as Hackathons or
+ * Jobs gather what belongs together, and the rest waits under Everything
+ * else rather than vanishing. The same inbox shows on the computer: whichever
+ * device reads the mail writes it for both.
  */
 export function InboxScreen({ onSettings }: { onSettings: () => void }) {
   const c = useColors()
@@ -50,24 +43,27 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
   const tasks = useObserved(reminders, EVERY_TASK)
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
   const [filter, setFilter] = useState<Filter>({ kind: 'important' })
+  const [account, setAccount] = useState<string | null>(null)
   const now = Date.now()
 
   // Opening the Inbox is seeing what is in it.
   const { markSeen } = inbox
-  useEffect(() => markSeen(), [markSeen, inbox.found.length])
+  useEffect(() => markSeen('inbox'), [markSeen, inbox.mail.length])
 
-  const visible = inbox.found.filter((e) => !inbox.dismissed.has(e.message.id))
-  const important = visible.filter(isImportant)
-  const rest = visible.filter((e) => !isImportant(e))
-  const folders = inbox.folders.filter((f) => visible.some((e) => e.triage?.folder === f))
+  const picked = account && inbox.mailAccounts.accounts.includes(account) ? account : null
+  const visible = picked ? inbox.mail.filter((r) => r.account === picked) : inbox.mail
+  const important = visible.filter((r) => isImportant(r, inbox.senders))
+  const rest = visible.filter((r) => !isImportant(r, inbox.senders))
+  const folders = inbox.folders.filter((f) => visible.some((r) => r.triage?.folder === f))
   const current = filter.kind === 'folder' && !folders.includes(filter.name) ? ({ kind: 'important' } as Filter) : filter
-  const shown = current.kind === 'important' ? important : current.kind === 'rest' ? rest : visible.filter((e) => e.triage?.folder === current.name)
+  const shown = current.kind === 'important' ? important : current.kind === 'rest' ? rest : visible.filter((r) => r.triage?.folder === current.name)
+  const gaps = inbox.gaps.filter((g) => g.missing.includes('mail'))
 
-  const mark = (entry: InboxEntry, rule: 'important' | 'unimportant') => {
-    inbox.mark(entry, rule)
+  const mark = (record: InboxRecord, rule: SenderRule) => {
+    void inbox.mark(record, rule)
     toast({
-      message: rule === 'unimportant' ? `Mail from ${sender(entry.message.from)} will skip Important` : `Mail from ${sender(entry.message.from)} will stay in Important`,
-      action: { label: 'Undo', run: () => inbox.mark(entry, rule === 'important' ? 'unimportant' : 'important') },
+      message: rule === 'unimportant' ? `Mail from ${sender(record.from)} will skip Important` : `Mail from ${sender(record.from)} will stay in Important`,
+      action: { label: 'Undo', run: () => void inbox.mark(record, rule === 'important' ? 'unimportant' : 'important') },
     })
   }
 
@@ -86,25 +82,39 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
     </Animated.View>
   )
 
-  if (accounts.length === 0 || inbox.readable.length === 0) {
+  const bar = (
+    <View style={styles.bar}>
+      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onPress={() => void inbox.refresh(true)} label="Check mail now" caption="after" />}
+      <View style={styles.spacer} />
+      <Tap onPress={onSettings} scaleTo={0.92} style={styles.icon} accessibilityLabel="Settings">
+        <GearIcon color={c.fg} />
+      </Tap>
+    </View>
+  )
+
+  // Accounts with Gmail on, and any whose mail is already here.
+  const reading = inbox.mailAccounts.accounts.length > 0
+  if (accounts.length === 0 || (!reading && gaps.length === 0)) {
     return (
       <View style={styles.screen}>
-        <View style={styles.bar} />
+        {bar}
         <Text style={[styles.heading, { color: c.fg }]}>Inbox</Text>
         {accounts.length === 0
-          ? empty('Your mail, sorted', 'Sign in with Google, then let Cairn read Gmail and Classroom. Important mail is picked out, grouped into folders, and due dates become tasks.', {
+          ? empty('Your mail, sorted', 'Sign in with Google, then let Cairn read Gmail. Important mail is picked out, grouped into folders, and due dates become tasks.', {
               label: 'Set up in Settings',
               run: onSettings,
             })
-          : empty('Nothing connected yet', 'Turn on Gmail or Google Classroom for an account in Settings.', { label: 'Open Settings', run: onSettings })}
+          : empty('Gmail isn’t on yet', 'Turn on Gmail for an account in Settings. Classroom posts have their own tab.', { label: 'Open Settings', run: onSettings })}
       </View>
     )
   }
 
   return (
     <View style={styles.screen}>
-      <View style={styles.bar} />
+      {bar}
       <Text style={[styles.heading, { color: c.fg }]}>Inbox</Text>
+
+      <AccountChips chips={inbox.mailAccounts} current={picked} onPick={setAccount} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsRow} contentContainerStyle={styles.chips}>
         <FilterChip label="Important" count={important.length} on={current.kind === 'important'} onPress={() => setFilter({ kind: 'important' })} />
@@ -112,7 +122,7 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
           <FilterChip
             key={name}
             label={name}
-            count={visible.filter((e) => e.triage?.folder === name).length}
+            count={visible.filter((r) => r.triage?.folder === name).length}
             on={same(current, { kind: 'folder', name })}
             onPress={() => setFilter({ kind: 'folder', name })}
           />
@@ -124,6 +134,12 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
         contentContainerStyle={styles.body}
         refreshControl={<RefreshControl refreshing={inbox.refreshing} onRefresh={() => void inbox.refresh(true)} tintColor={c.accent} colors={[c.accent]} progressBackgroundColor={c.surface} />}
       >
+        {gaps.map((gap) => (
+          <Tap key={gap.sub} onPress={onSettings} scaleTo={0.98} style={[styles.notice, { backgroundColor: c.surface, borderColor: c.accent }]} accessibilityRole="button">
+            <Text style={{ color: c.fg, fontWeight: '600' }}>Connect {gap.email} to match your computer</Text>
+            <Text style={{ color: c.muted, marginTop: 2 }}>Your computer reads {gap.missing.map((s) => SERVICE_NAMES[s]).join(' and ')} for it. Set it up in Settings.</Text>
+          </Tap>
+        ))}
         {inbox.error && (
           <Animated.View entering={appear} style={[styles.notice, { backgroundColor: c.danger + '22', borderColor: c.danger }]}>
             <Text style={{ color: c.danger }}>{inbox.error}</Text>
@@ -143,18 +159,27 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
         {auth.status === 'error' && <Text style={[styles.hint, { color: c.danger }]}>{auth.message}</Text>}
 
         <LayoutAnimationConfig skipEntering>
-          {shown.map((entry) => (
+          {shown.map((record) => (
             <MailCard
-              key={entry.message.id}
-              entry={entry}
+              key={record.id}
+              record={record}
+              senders={inbox.senders}
               showFolder={current.kind !== 'folder'}
-              added={taskIds.has(inboxTaskId(entry.message))}
+              showAccount={inbox.mailAccounts.all && !picked}
+              added={taskIds.has(inboxTaskId(record))}
               now={now}
-              onAdd={() => {
-                void inbox.addAsTask(entry).then(() => toast({ message: 'Added to Tasks' }))
+              onOpen={() => {
+                void inbox.markRead(record)
+                void openMessage(record)
               }}
-              onMark={(rule) => mark(entry, rule)}
-              onHide={() => inbox.dismiss(entry)}
+              onAdd={() => {
+                void inbox.addAsTask(record).then(() => toast({ message: 'Added to Tasks' }))
+              }}
+              onMark={(rule) => mark(record, rule)}
+              onHide={() => {
+                void inbox.dismiss(record)
+                toast({ message: 'Hidden on every device', action: { label: 'Undo', run: () => void inbox.dismiss(record, false) } })
+              }}
             />
           ))}
         </LayoutAnimationConfig>
@@ -162,88 +187,79 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
         {!inbox.refreshing && shown.length === 0 && (
           <Text style={[styles.hint, { color: c.muted }]}>
             {current.kind === 'important'
-              ? 'Nothing important yet. Cairn reads new mail and Classroom work from the moment you switched them on, and lets you know when something turns up.'
+              ? 'Nothing important yet. Cairn reads new mail from the moment you switched it on, and lets you know when something turns up.'
               : 'Nothing here right now.'}
           </Text>
         )}
-        {inbox.lastRun && (
-          <Text style={[styles.hint, { color: c.faint }]}>
-            Checked {ago(inbox.lastRun, now)} ago{inbox.ai.model ? ` · sorted by ${inbox.ai.model}` : ''}
-          </Text>
-        )}
+        <Text style={[styles.hint, { color: c.faint }]}>
+          {readerStatus(inbox, 'phone', now)}
+          {inbox.ai.model ? ` · sorted by ${inbox.ai.model}` : ''}
+        </Text>
       </ScrollView>
     </View>
   )
 }
 
-function FilterChip({ label, count, on, onPress }: { label: string; count: number; on: boolean; onPress: () => void }) {
-  const c = useColors()
-  const fill = useSharedValue(on ? 1 : 0)
-  useEffect(() => {
-    fill.value = withTiming(on ? 1 : 0, settle)
-  }, [on, fill])
-  const pill = useAnimatedStyle(() => ({ opacity: fill.value, transform: [{ scale: 0.85 + fill.value * 0.15 }] }))
-  return (
-    <Tap onPress={onPress} scaleTo={0.92} style={styles.chip} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}, ${count}`}>
-      <Animated.View style={[StyleSheet.absoluteFill, styles.chipFill, { backgroundColor: c.surfaceHigh }, pill]} />
-      <Text style={[styles.chipText, { color: on ? c.fg : c.muted, fontWeight: on ? '700' : '400' }]}>{label}</Text>
-      {count > 0 && <Text style={[styles.chipCount, { color: on ? c.accent : c.faint }]}>{count}</Text>}
-    </Tap>
-  )
-}
-
 function MailCard({
-  entry,
+  record,
+  senders,
   showFolder,
+  showAccount,
   added,
   now,
+  onOpen,
   onAdd,
   onMark,
   onHide,
 }: {
-  entry: InboxEntry
+  record: InboxRecord
+  senders: Record<string, SenderRule>
   showFolder: boolean
+  showAccount: boolean
   added: boolean
   now: number
+  onOpen: () => void
   onAdd: () => void
-  onMark: (rule: 'important' | 'unimportant') => void
+  onMark: (rule: SenderRule) => void
   onHide: () => void
 }) {
   const c = useColors()
-  const { message, triage } = entry
-  const important = isImportant(entry)
-  const due = dueOf(entry)
-  const post = message.classroom
-  const summary = triage?.summary ?? message.snippet
-  const tags = triage ? tagsOf(entry) : []
+  const { triage } = record
+  const important = isImportant(record, senders)
+  const due = dueOf(record)
+  const summary = triage?.summary ?? record.snippet
+  const tags = triage ? tagsOf(record) : []
   return (
     <Animated.View entering={appear} exiting={fadeOut} layout={reflow}>
       <Tap
-        onPress={() => void openMessage(message)}
+        onPress={onOpen}
         onLongPress={onHide}
         scaleTo={0.985}
         haptic="none"
         style={[styles.card, { backgroundColor: c.surface }]}
-        accessibilityHint={`Opens in ${post ? 'Classroom' : 'Gmail'}. Long-press to hide.`}
+        accessibilityHint="Opens in Gmail. Long-press to hide."
       >
         <View style={styles.cardHead}>
+          {!record.read && <View style={[styles.unread, { backgroundColor: c.accent }]} accessibilityLabel="Unread" />}
           {showFolder && triage?.folder && (
             <View style={[styles.folder, { backgroundColor: c.accent + '22' }]}>
               <Text style={[styles.folderText, { color: c.accent }]}>{triage.folder}</Text>
             </View>
           )}
           <Text style={[styles.cardMeta, styles.flex, { color: c.muted }]} numberOfLines={1}>
-            {post ? `${post.kind === 'work' ? 'Classroom work' : 'Classroom'} · ${post.course}` : sender(message.from)} · {ago(message.receivedAt, now)}
+            {sender(record.from)} · {formatAgo(record.receivedAt, now).replace(' ago', '')}
+            {showAccount ? ` · ${record.account}` : ''}
           </Text>
         </View>
-        <Text style={[styles.cardTitle, { color: c.fg }]} numberOfLines={2}>
-          {message.subject || '(no subject)'}
+        <Text style={[styles.cardTitle, { color: c.fg, fontWeight: record.read ? '600' : '700' }]} numberOfLines={2}>
+          {record.subject || '(no subject)'}
         </Text>
         {!!summary && (
           <Text style={[styles.summary, { color: c.muted }]} numberOfLines={3}>
             {summary}
           </Text>
         )}
+        {record.sorting && <Text style={[styles.tags, { color: c.faint }]}>Sorting…</Text>}
         {important && triage?.why && <Text style={[styles.why, { color: c.fg }]}>{triage.why}</Text>}
         {tags.length > 0 && (
           <Text style={[styles.tags, { color: c.faint }]} numberOfLines={1}>
@@ -277,18 +293,15 @@ function MailCard({
   )
 }
 
-const styles = StyleSheet.create({
+export const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
   spacer: { flex: 1 },
-  bar: { height: 56 },
-  heading: { fontSize: 40, fontWeight: '300', paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: space.lg },
+  bar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md, paddingTop: space.sm, height: 56 },
+  icon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
+  heading: { fontSize: 40, fontWeight: '300', paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: space.md },
   chipsRow: { flexGrow: 0, height: 48, marginBottom: space.sm },
   chips: { paddingHorizontal: space.lg, gap: space.xs, alignItems: 'center' },
-  chip: { flexDirection: 'row', alignItems: 'center', height: 40, paddingHorizontal: space.lg, gap: 6 },
-  chipText: { fontSize: 16, lineHeight: 22, includeFontPadding: false },
-  chipCount: { fontSize: 13, lineHeight: 18, includeFontPadding: false, fontVariant: ['tabular-nums'] },
-  chipFill: { borderRadius: 16 },
   body: { paddingHorizontal: space.lg, paddingBottom: 120, gap: space.md },
   card: { borderRadius: radius.card + 4, padding: space.lg, gap: 6 },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
@@ -297,6 +310,7 @@ const styles = StyleSheet.create({
   summary: { fontSize: 15, lineHeight: 21 },
   why: { fontSize: 13, fontWeight: '600' },
   tags: { fontSize: 13 },
+  unread: { width: 8, height: 8, borderRadius: 4 },
   folder: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
   folderText: { fontSize: 12, fontWeight: '700' },
   due: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: radius.chip, paddingHorizontal: space.md, paddingVertical: 4, marginTop: 2, maxWidth: '100%' },

@@ -1,10 +1,12 @@
 import { AiError, checkAiKey, modelsFor, readAiSetup, type AiSetup, type NoteQuery } from '@cairn/sync'
 import { DEFAULT_PROFILE, PROFILE_LIMIT } from '@cairn/core'
-import { featuresOf, owner, readsAnnouncements, recycleBin, sources, type Account } from '@cairn/ui'
+import { featuresOf, owner, readerStatus, readsAnnouncements, recycleBin, SERVICE_NAMES, sources, type Account } from '@cairn/ui'
 import Constants from 'expo-constants'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ActivityIndicator, BackHandler, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import Animated, { interpolateColor, useAnimatedKeyboard, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, { useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated'
+import { Switch } from '../components/Switch'
+import { SyncButton } from '../components/SyncButton'
 import { notificationPermission, requestNotificationPermission, type PermissionState } from '../platform/notifications'
 import { useCairn } from '../state/context'
 import { useObserved } from '../state/hooks'
@@ -13,7 +15,7 @@ import { usePreferences, type Feature, type FontSize, type Layout, type SortOrde
 import { useToast } from '../state/toast'
 import { radius, space, useColors } from '../theme'
 import { Glyph } from '../ui/icons'
-import { fadeIn, fadeOut, settle, sheetIn, sheetOut, Tap } from '../ui/motion'
+import { fadeIn, fadeOut, sheetIn, sheetOut, Tap } from '../ui/motion'
 import { RecycleBinScreen } from './RecycleBinScreen'
 
 const SITE = 'https://cairn-vishalk.web.app'
@@ -108,12 +110,19 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const main = owner(cairn.accounts)
   const linked = sources(cairn.accounts)
   const auth = cairn.auth
+  // Classroom files are saved by the computer alone; a phone has no use for them.
+  const gaps = inbox.gaps
 
   const pick = <T extends string>(title: string, labels: Record<T, string>, current: T, set: (v: T) => void) =>
     setChoice({
       title,
       options: (Object.keys(labels) as T[]).map((value) => ({ label: labels[value], on: value === current, pick: () => set(value) })),
     })
+
+  const syncAll = () => {
+    void cairn.sync.run()
+    void inbox.refresh(true)
+  }
 
   if (bin) return <RecycleBinScreen onBack={() => setBin(false)} />
 
@@ -127,22 +136,55 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={[styles.heading, { color: c.fg }]}>Settings</Text>
 
-        <Section title="Account">
-          {auth.status === 'synced' || main ? (
-            <Row
-              title={main?.identity.email ?? 'Signed in'}
-              detail={
-                auth.status === 'synced'
-                  ? 'Synced with your other devices'
-                  : auth.status === 'connecting'
-                    ? 'Connecting…'
-                    : auth.status === 'error'
-                      ? auth.message
-                      : 'Signed in'
-              }
-              detailTone={auth.status === 'error' ? 'danger' : 'muted'}
-              trailing={auth.status === 'connecting' ? <ActivityIndicator color={c.muted} /> : undefined}
-            />
+        <Section title="Accounts & access">
+          {main ? (
+            <>
+              <Text style={[styles.note, { color: c.faint }]}>
+                {main.identity.email} holds your notes and tasks. Other accounts, such as a university one, are only read: Cairn never sends, changes or keeps anything in them.
+              </Text>
+              {[main, ...linked].map((account) => (
+                <AccountCard
+                  key={account.identity.sub}
+                  account={account}
+                  status={
+                    account.role === 'owner'
+                      ? auth.status === 'synced'
+                        ? 'Syncing notes and tasks'
+                        : auth.status === 'connecting'
+                          ? 'Connecting…'
+                          : auth.status === 'error'
+                            ? auth.message
+                            : 'Signed in'
+                      : 'Read only'
+                  }
+                  danger={account.role === 'owner' && auth.status === 'error'}
+                  syncing={account.role === 'owner' ? cairn.sync.busy || inbox.refreshing : inbox.refreshing}
+                  syncedAt={account.role === 'owner' ? cairn.sync.at : inbox.checkedAt}
+                  onSync={account.role === 'owner' ? syncAll : () => void inbox.refresh(true)}
+                  busy={busy}
+                  paused={preferences.paused}
+                  onToggle={(f) => toggle(account, f)}
+                  onAnnouncements={() => allowAnnouncements(account)}
+                  onDisconnect={account.role === 'source' ? () => void run(`x${account.identity.sub}`, () => cairn.disconnectSource(account.identity.sub)) : undefined}
+                />
+              ))}
+              {gaps.map((gap) => (
+                <Row
+                  key={`gap-${gap.sub}`}
+                  title={`Connect ${gap.email} to match your computer`}
+                  detail={`Your computer reads ${gap.missing.map((s) => SERVICE_NAMES[s]).join(' and ')} for it. Google asks this phone separately.`}
+                  trailing={busy === `gap:${gap.sub}` ? <ActivityIndicator color={c.accent} /> : <Glyph char="+" color={c.accent} size={24} />}
+                  onPress={() => void run(`gap:${gap.sub}`, () => cairn.matchAccount(gap))}
+                />
+              ))}
+              <Row
+                title="Link another account"
+                detail="A university or work account to read Gmail and Classroom from"
+                trailing={busy === 'link' ? <ActivityIndicator color={c.accent} /> : <Glyph char="+" color={c.accent} size={24} />}
+                onPress={() => void run('link', () => cairn.connectSource({ mail: true, classroom: true }))}
+              />
+              <Row title="Sign out" detail="Notes stay on this phone; they just stop syncing" danger onPress={() => void run('signout', cairn.signOut)} />
+            </>
           ) : (
             <Row
               title="Sign in with Google"
@@ -152,50 +194,11 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
               onPress={() => void run('signin', cairn.signIn)}
             />
           )}
-          {main && (
-            <Row
-              title="Sign out"
-              detail="Notes stay on this phone; they just stop syncing"
-              danger
-              onPress={() => void run('signout', cairn.signOut)}
-            />
-          )}
         </Section>
 
-        {main && (
-          <Section title="Mail and Classroom">
-            <Text style={[styles.note, { color: c.faint }]}>
-              Cairn reads new mail and Classroom posts, picks out what matters and offers due dates as tasks. Nothing in your mailbox or your classes is ever sent or changed.
-            </Text>
-            <AccountFeatures account={main} busy={busy} paused={preferences.paused} onToggle={(f) => toggle(main, f)} onAnnouncements={() => allowAnnouncements(main)} />
-            {linked.map((account) => (
-              <View key={account.identity.sub}>
-                <AccountFeatures
-                  account={account}
-                  busy={busy}
-                  paused={preferences.paused}
-                  onToggle={(f) => toggle(account, f)}
-                  onAnnouncements={() => allowAnnouncements(account)}
-                />
-                <Row title="Disconnect" danger onPress={() => void run(`x${account.identity.sub}`, () => cairn.disconnectSource(account.identity.sub))} />
-              </View>
-            ))}
-            <Row
-              title="Link another account"
-              detail="A university or work account to read from"
-              trailing={busy === 'link' ? <ActivityIndicator color={c.accent} /> : <Glyph char="+" color={c.accent} size={24} />}
-              onPress={() => void run('link', () => cairn.connectSource({ mail: true, classroom: true }))}
-            />
-          </Section>
-        )}
-
         {/* Shown signed out too, so the place to paste a key is easy to find. */}
-        <Section title="AI sorting">
-          <Text style={[styles.note, { color: c.faint }]}>
-            With a key, Cairn sends the text of each new email and Classroom post to NVIDIA's AI service, which picks out what matters to you, files it
-            into folders such as Hackathons or Jobs, tags it, and reads off any deadline or time. The key stays on this phone.
-            {main ? '' : ' It starts working once you sign in and turn on mail reading.'}
-          </Text>
+        <Section title="Inbox & AI">
+          {main && <Row title="Who reads your mail" detail={`${readerStatus(inbox, 'phone', Date.now())}. Your computer reads whenever it is on; this phone takes over when it is not.`} />}
           <Row
             title="What matters to you"
             detail={inbox.profile.length > 140 ? `${inbox.profile.slice(0, 137)}…` : inbox.profile}
@@ -205,13 +208,13 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           {inbox.ai.on ? (
             <>
               <Row
-                title="On"
+                title="AI sorting is on"
                 detail={inbox.ai.error ?? (inbox.ai.model ? `Last sorted by ${inbox.ai.model}` : `Uses ${inbox.ai.preferred ?? 'GPT-OSS'} from the next mail that arrives`)}
                 detailTone={inbox.ai.error ? 'danger' : 'muted'}
                 trailing={<Glyph char="✓" color={c.accent} size={20} />}
               />
               <Row title="Change key" onPress={() => setKeySheet(true)} trailing={<Glyph char="›" color={c.muted} size={26} />} />
-              <Row title="Remove key" detail="Mail goes back to being checked for deadlines only" danger onPress={() => void run('aikey', () => inbox.setAiSetup(null))} />
+              <Row title="Remove key" detail="From this phone and your computer. Mail goes back to being checked for deadlines only." danger onPress={() => void run('aikey', () => inbox.setAiSetup(null))} />
             </>
           ) : (
             <Row
@@ -221,12 +224,33 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
               onPress={() => setKeySheet(true)}
             />
           )}
+          <Text style={[styles.note, { color: c.faint, paddingTop: space.sm }]}>
+            With a key, the device reading your mail sends the text of each new email and Classroom post to NVIDIA's AI service, which picks out what matters, files it into folders, tags it and reads off any deadline. The key is kept in your Cairn account, so your computer uses it too.
+            {main ? '' : ' It starts working once you sign in and turn on mail reading.'}
+          </Text>
         </Section>
 
-        <Section title="Style">
+        {main && (
+          <Section title="Classroom">
+            <Row
+              title="Automatically add tasks"
+              detail="New coursework becomes a task at its due date and ticks itself off when you hand it in. Announcements become tasks at any date they give. On your computer too."
+              trailing={<Switch on={inbox.autoTasks} />}
+              onPress={() => void inbox.setAutoTasks(!inbox.autoTasks)}
+            />
+          </Section>
+        )}
+
+        <Section title="Notes">
           <Row title="Font size" value={FONT_LABEL[preferences.fontSize]} onPress={() => pick('Font size', FONT_LABEL, preferences.fontSize, (fontSize) => update({ fontSize }))} />
           <Row title="Sort" value={SORT_LABEL[preferences.sort]} onPress={() => pick('Sort', SORT_LABEL, preferences.sort, (sort) => update({ sort }))} />
           <Row title="Layout" value={LAYOUT_LABEL[preferences.layout]} onPress={() => pick('Layout', LAYOUT_LABEL, preferences.layout, (layout) => update({ layout }))} />
+          <Row
+            title="Recycle bin"
+            detail={`${binned === 0 ? 'Empty' : binned === 1 ? '1 note' : `${binned} notes`} · deleted notes are kept for 30 days`}
+            trailing={<Glyph char="›" color={c.muted} size={26} />}
+            onPress={() => setBin(true)}
+          />
         </Section>
 
         <Section title="Reminders">
@@ -248,15 +272,6 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
               update({ urgentAlerts })
               if (urgentAlerts) toast({ message: 'For Do Not Disturb, also allow Cairn under Settings › Notifications › Do Not Disturb access.' })
             }}
-          />
-        </Section>
-
-        <Section title="Notes">
-          <Row
-            title="Recycle bin"
-            detail={`${binned === 0 ? 'Empty' : binned === 1 ? '1 note' : `${binned} notes`} · deleted notes are kept for 30 days`}
-            trailing={<Glyph char="›" color={c.muted} size={26} />}
-            onPress={() => setBin(true)}
           />
         </Section>
 
@@ -284,9 +299,9 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         <ProfileSheet
           profile={inbox.profile}
           onSave={(text) => {
-            inbox.setProfile(text)
+            void inbox.setProfile(text)
             setProfileSheet(false)
-            toast({ message: 'Saved. New mail is read with it from now on.' })
+            toast({ message: 'Saved. New mail is read with it from now on, here and on your computer.' })
           }}
           onClose={() => setProfileSheet(false)}
         />
@@ -390,7 +405,7 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
         />
         {read?.ok && !problem && (
           <Text style={{ color: c.muted, marginTop: space.sm }}>
-            Found a key{read.setup.model ? ` for ${modelsFor(read.setup)[0]?.label}` : ''}. Kept in this phone's secure storage and sent only to NVIDIA.
+            Found a key{read.setup.model ? ` for ${modelsFor(read.setup)[0]?.label}` : ''}. Kept in this phone's secure storage and your Cairn account, and sent only to NVIDIA.
           </Text>
         )}
         {(problem ?? (read && !read.ok ? read.error : null)) && (
@@ -455,18 +470,31 @@ function ProfileSheet({ profile, onSave, onClose }: { profile: string; onSave: (
   )
 }
 
-function AccountFeatures({
+/** One account: what it is, a sync button, and what Cairn reads from it. */
+function AccountCard({
   account,
+  status,
+  danger,
+  syncing,
+  syncedAt,
+  onSync,
   busy,
   paused,
   onToggle,
   onAnnouncements,
+  onDisconnect,
 }: {
   account: Account
+  status: string
+  danger?: boolean
+  syncing: boolean
+  syncedAt: number | null
+  onSync: () => void
   busy: string | null
   paused: Record<Feature, string[]>
   onToggle: (feature: Feature) => void
   onAnnouncements: () => void
+  onDisconnect?: () => void
 }) {
   const c = useColors()
   const sub = account.identity.sub
@@ -479,10 +507,21 @@ function AccountFeatures({
     />
   )
   return (
-    <View>
-      <Text style={[styles.accountName, { color: c.fg }]}>{account.identity.email}</Text>
+    <View style={[styles.card, { backgroundColor: c.surface }]}>
+      <View style={styles.cardHead}>
+        <View style={styles.rowText}>
+          <Text style={[styles.accountName, { color: c.fg }]} numberOfLines={1}>
+            {account.identity.email}
+          </Text>
+          <Text style={[styles.rowDetail, { color: danger ? c.danger : c.muted }]}>
+            {account.role === 'owner' ? 'Holds your notes · ' : ''}
+            {status}
+          </Text>
+        </View>
+        <SyncButton busy={syncing} at={syncedAt} onPress={onSync} label={`Sync ${account.identity.email}`} caption="none" />
+      </View>
       {row('mail', 'Read Gmail', 'New mail from now on — important mail and deadlines picked out')}
-      {row('classroom', 'Read Google Classroom', 'New coursework and announcements from now on. A task made from coursework ticks itself off when you hand in')}
+      {row('classroom', 'Read Google Classroom', 'New coursework and announcements, in the Classroom tab')}
       {readingOn(account, 'classroom', paused) && !readsAnnouncements(account) && (
         <Row
           title="Read announcements too"
@@ -491,6 +530,7 @@ function AccountFeatures({
           onPress={onAnnouncements}
         />
       )}
+      {onDisconnect && <Row title="Disconnect" detail="Stops reading this account on this phone" danger onPress={onDisconnect} />}
     </View>
   )
 }
@@ -542,22 +582,6 @@ function Row({
   )
 }
 
-/** A switch whose thumb travels on a spring, so flipping it feels like a toggle rather than a repaint. */
-function Switch({ on }: { on: boolean }) {
-  const c = useColors()
-  const t = useSharedValue(on ? 1 : 0)
-  useEffect(() => {
-    t.value = withTiming(on ? 1 : 0, settle)
-  }, [on, t])
-  const track = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(t.value, [0, 1], [c.surfaceHigh, c.accent]) }))
-  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: t.value * 22 }] }))
-  return (
-    <Animated.View style={[styles.track, track]} accessibilityRole="switch" accessibilityState={{ checked: on }}>
-      <Animated.View style={[styles.thumb, thumb]} />
-    </Animated.View>
-  )
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
@@ -568,14 +592,14 @@ const styles = StyleSheet.create({
   section: { paddingVertical: space.md, borderBottomWidth: StyleSheet.hairlineWidth, marginHorizontal: space.xl },
   sectionTitle: { fontSize: 15, paddingVertical: space.md },
   note: { fontSize: 13, lineHeight: 19, paddingBottom: space.md },
-  accountName: { fontSize: 14, fontWeight: '600', paddingTop: space.md },
+  accountName: { fontSize: 17, fontWeight: '700' },
+  card: { borderRadius: radius.card + 4, paddingHorizontal: space.lg, paddingTop: space.md, marginBottom: space.md },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingBottom: space.xs },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.lg, minHeight: 60 },
   rowText: { flex: 1, gap: 4 },
   rowTitle: { fontSize: 18, fontWeight: '600' },
   rowDetail: { fontSize: 14, lineHeight: 19 },
   rowValue: { fontSize: 16 },
-  track: { width: 52, height: 30, borderRadius: 15, padding: 3 },
-  thumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff' },
   scrim: { backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, padding: space.lg, paddingBottom: space.xl },
   sheetTitle: { fontSize: 18, fontWeight: '700', marginBottom: space.sm },

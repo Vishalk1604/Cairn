@@ -171,6 +171,44 @@ export function GearIcon({ color, size = 22 }: { color: string; size?: number })
   )
 }
 
+/** A mortarboard, for Classroom. */
+export function ClassIcon({ color, size = 22 }: { color: string; size?: number }) {
+  const s = size / 22
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center' }}>
+      <View style={{ marginTop: 2 * s, width: 20 * s, height: 10 * s, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: 13 * s, height: 13 * s, borderWidth: 2 * s, borderColor: color, transform: [{ scaleY: 0.55 }, { rotate: '45deg' }] }} />
+      </View>
+      <View
+        style={{
+          width: 12 * s,
+          height: 6 * s,
+          marginTop: -2 * s,
+          borderWidth: 2 * s,
+          borderTopWidth: 0,
+          borderColor: color,
+          borderBottomLeftRadius: 5 * s,
+          borderBottomRightRadius: 5 * s,
+        }}
+      />
+      <View style={{ position: 'absolute', top: 7 * s, right: 2 * s, width: 1.8 * s, height: 8 * s, backgroundColor: color }} />
+    </View>
+  )
+}
+
+/** Two arrows chasing round: sync. */
+export function SyncIcon({ color, size = 22 }: { color: string; size?: number }) {
+  const s = size / 22
+  const head = { position: 'absolute' as const, width: 0, height: 0, borderLeftWidth: 3.5 * s, borderRightWidth: 3.5 * s, borderBottomWidth: 5 * s, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: color }
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: 16 * s, height: 16 * s, borderRadius: 8 * s, borderWidth: 2 * s, borderColor: color, borderTopColor: 'transparent', borderBottomColor: 'transparent', transform: [{ rotate: '20deg' }] }} />
+      <View style={[head, { top: 2 * s, right: 3.5 * s, transform: [{ rotate: '110deg' }] }]} />
+      <View style={[head, { bottom: 2 * s, left: 3.5 * s, transform: [{ rotate: '-70deg' }] }]} />
+    </View>
+  )
+}
+
 /** Any character the font does have, sized and centred like the drawn ones. */
 export function Glyph({ char, color, size = 22, weight = '400' }: { char: string; color: string; size?: number; weight?: '400' | '600' | '700' }) {
   return (

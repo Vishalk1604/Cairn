@@ -1,6 +1,6 @@
 import { TokenError } from '@cairn/auth'
 import { signOutOfFirebase } from '@cairn/sync'
-import { connect, disconnect, forgetAllAccounts, loadAccounts, owner, type Account, type SourceFeatures } from '@cairn/ui'
+import { connect, disconnect, forgetAllAccounts, loadAccounts, owner, type Account, type AccountGap, type SourceFeatures } from '@cairn/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { mobilePlatform } from '../platform/mobile'
 import {
@@ -22,6 +22,8 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
   const [accounts, setAccounts] = useState<Account[]>([])
   const [userId, setUserId] = useState(LOCAL_USER)
+  const [syncing, setSyncing] = useState(false)
+  const [syncedAt, setSyncedAt] = useState<number | null>(null)
   const sync = useRef<Sync | null>(null)
 
   const begin = useCallback(async (store: LocalStore, all: Account[]) => {
@@ -33,9 +35,13 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
     setAuth({ status: 'connecting' })
     try {
       sync.current?.stop()
-      sync.current = await startSync(store, all, platform)
-      setUserId(sync.current.uid)
+      const started = await startSync(store, all, platform)
+      sync.current = started
+      setUserId(started.uid)
       setAuth({ status: 'synced', email: holder.identity.email })
+      void started.ready.then(() => {
+        if (sync.current === started) setSyncedAt(Date.now())
+      })
     } catch (error) {
       // A dead refresh token is the one case where the stored account is
       // worthless; anything else (no network, mostly) is worth retrying.
@@ -109,6 +115,34 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
     setAccounts(await disconnect(platform, sub))
   }, [])
 
+  const matchAccount = useCallback(async (gap: AccountGap) => {
+    const expect = gap.account?.identity ?? { sub: gap.sub, email: gap.email, emailVerified: true }
+    setAccounts(await connect(platform, { role: gap.role, features: gap.features, expect }))
+  }, [])
+
+  /**
+   * Starts copying afresh: everything is pulled from the cloud again and
+   * anything not there yet is sent. Firestore keeps no lasting copy on a
+   * phone, so this is a real look at the server, not at a cache.
+   */
+  const runSync = useCallback(async () => {
+    if (!local || !owner(accounts) || syncing) return
+    setSyncing(true)
+    try {
+      sync.current?.stop()
+      const started = await startSync(local, accounts, platform)
+      sync.current = started
+      setUserId(started.uid)
+      await started.ready
+      setSyncedAt(Date.now())
+      setAuth({ status: 'synced', email: owner(accounts)!.identity.email })
+    } catch (error) {
+      setAuth({ status: 'error', message: describeError(error) })
+    } finally {
+      setSyncing(false)
+    }
+  }, [local, accounts, syncing])
+
   const value = useMemo<Cairn | null>(
     () =>
       local
@@ -124,9 +158,11 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
             connectSource,
             regrant,
             disconnectSource,
+            matchAccount,
+            sync: { busy: syncing || auth.status === 'connecting', at: syncedAt, run: runSync },
           }
         : null,
-    [local, userId, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource],
+    [local, userId, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource, matchAccount, syncing, syncedAt, runSync],
   )
 
   if (!value) return null
