@@ -88,6 +88,7 @@ export const webPlatform: DesktopPlatform = {
   // A page cannot keep files in a folder; photos show in the desktop app.
   media: null,
   classroom: null,
+  desk: null,
 
   async authorize() {
     throw new Error('Signing in needs the Cairn desktop app, which can listen for the reply from your browser')

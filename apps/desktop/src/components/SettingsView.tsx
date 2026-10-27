@@ -268,10 +268,12 @@ function SystemSection() {
   const { platform } = useCairn()
   const [permission, setPermission] = useState<PermissionState | null>(null)
   const [autostart, setAutostart] = useState<boolean | null>(null)
+  const [pinned, setPinned] = useState<boolean | null>(null)
 
   useEffect(() => {
     void platform.notificationPermission().then(setPermission)
     void platform.autostart?.isEnabled().then(setAutostart)
+    void platform.desk?.pinned().then(setPinned)
   }, [platform])
 
   return (
@@ -296,6 +298,14 @@ function SystemSection() {
       {platform.autostart && autostart !== null && (
         <Row title="Start with Windows" detail="Opens quietly as the widget when you log in, so reminders keep firing.">
           <Switch on={autostart} label="Start with Windows" onChange={async (next) => setAutostart(await platform.autostart!.set(next))} />
+        </Row>
+      )}
+      {platform.desk && pinned !== null && (
+        <Row
+          title="Pin to desktop"
+          detail="Today on your wallpaper, behind your windows and still there after Show desktop. Click a circle to tick a task off; double-click for the full app."
+        >
+          <Switch on={pinned} label="Pin to desktop" onChange={async (next) => setPinned(await platform.desk!.pin(next))} />
         </Row>
       )}
       <Row title="Quick capture" detail="Press Ctrl+Shift+Space anywhere to write something down." />

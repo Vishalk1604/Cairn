@@ -5,6 +5,8 @@
 //! hotkey.
 //! Expanded, it fills the screen as an ordinary app. The widget's place and
 //! size are remembered, so expanding and coming back puts it where it was.
+//! The third shape, Today pinned to the desktop, is a window of its own (see
+//! desk.rs); its place and whether it is on are kept in the same file.
 
 use std::fs;
 use std::path::PathBuf;
@@ -21,16 +23,31 @@ const MARGIN: f64 = 24.0;
 const FILE: &str = "widget.json";
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
-struct Bounds {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
+pub struct Bounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// widget.json. The widget's place stays at the top level, where older
+/// versions wrote it, so upgrading keeps it.
+#[derive(Default, Serialize, Deserialize)]
+struct Saved {
+    #[serde(flatten, default)]
+    widget: Option<Bounds>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    desk: Option<Bounds>,
+    #[serde(default)]
+    pinned: bool,
 }
 
 #[derive(Default)]
 pub struct WidgetPlace {
     bounds: Mutex<Option<Bounds>>,
+    /// The pinned widget's place, and whether it is pinned, once known this run.
+    desk: Mutex<Option<Bounds>>,
+    pinned: Mutex<Option<bool>>,
     full: Mutex<bool>,
     /// When the window last lost focus. Clicking the tray icon takes focus
     /// from it a moment before the click arrives, so this is how the click
@@ -59,9 +76,39 @@ fn file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path().app_data_dir().ok().map(|dir| dir.join(FILE))
 }
 
+fn load_saved<R: Runtime>(app: &AppHandle<R>) -> Saved {
+    file(app)
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
 fn load<R: Runtime>(app: &AppHandle<R>) -> Option<Bounds> {
-    let text = fs::read_to_string(file(app)?).ok()?;
-    serde_json::from_str(&text).ok()
+    load_saved(app).widget
+}
+
+/// Where the pinned widget was left, if a screen still shows it.
+pub fn saved_desk<R: Runtime>(app: &AppHandle<R>) -> Option<Bounds> {
+    let remembered = *app.state::<WidgetPlace>().desk.lock().unwrap();
+    let main = app.get_webview_window("main")?;
+    remembered.or_else(|| load_saved(app).desk).filter(|b| visible(&main, b))
+}
+
+pub fn pinned<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let known = *app.state::<WidgetPlace>().pinned.lock().unwrap();
+    known.unwrap_or_else(|| load_saved(app).pinned)
+}
+
+pub fn set_pinned<R: Runtime>(app: &AppHandle<R>, on: bool) {
+    *app.state::<WidgetPlace>().pinned.lock().unwrap() = Some(on);
+    persist(app);
+}
+
+/// Notes where the pinned widget is now.
+pub fn remember_desk<R: Runtime>(window: &WebviewWindow<R>) {
+    if let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) {
+        *window.state::<WidgetPlace>().desk.lock().unwrap() = Some(Bounds { x: position.x, y: position.y, width: size.width, height: size.height });
+    }
 }
 
 /// A saved place is only used if some screen still shows most of it; a
@@ -123,11 +170,21 @@ pub fn remember<R: Runtime>(window: &WebviewWindow<R>) {
 }
 
 /// Writes the widget's place to disk: on hiding, expanding and quitting,
-/// rather than on every pixel of a drag.
+/// rather than on every pixel of a drag. What this run has not touched is
+/// kept as it was in the file.
 pub fn persist<R: Runtime>(app: &AppHandle<R>) {
     let place = app.state::<WidgetPlace>();
-    let Some(bounds) = *place.bounds.lock().unwrap() else { return };
-    let (Some(path), Ok(text)) = (file(app), serde_json::to_string(&bounds)) else { return };
+    let mut saved = load_saved(app);
+    if let Some(bounds) = *place.bounds.lock().unwrap() {
+        saved.widget = Some(bounds);
+    }
+    if let Some(desk) = *place.desk.lock().unwrap() {
+        saved.desk = Some(desk);
+    }
+    if let Some(pinned) = *place.pinned.lock().unwrap() {
+        saved.pinned = pinned;
+    }
+    let (Some(path), Ok(text)) = (file(app), serde_json::to_string(&saved)) else { return };
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }

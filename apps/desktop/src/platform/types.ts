@@ -1,5 +1,6 @@
 import type { UrgencyLevel } from '@cairn/core'
 import type { LocalMediaFile, Platform } from '@cairn/ui'
+import type { DeskAction, DeskData } from '../desk/feed'
 
 /**
  * Everything the desktop app needs from its host, on top of what every Cairn
@@ -32,6 +33,19 @@ export interface DesktopPlatform extends Platform {
   readonly media: DesktopMedia | null
   /** A folder on disk for files from Google Classroom. Null in a browser. */
   readonly classroom: DesktopClassroom | null
+  /** Today pinned to the desktop, a window of its own. Null in a browser. */
+  readonly desk: DesktopDesk | null
+}
+
+/** The main window's side of the pinned widget (desk/feed.ts). */
+export interface DesktopDesk {
+  pinned(): Promise<boolean>
+  /** Pins it to the desktop or takes it away, and says which it is now. */
+  pin(enabled: boolean): Promise<boolean>
+  /** What it should show now. Nothing happens when it is not pinned. */
+  send(data: DeskData): Promise<void>
+  /** What it asks for: a task completed, the full app. */
+  onAction(handler: (action: DeskAction) => void): Promise<() => void>
 }
 
 /**

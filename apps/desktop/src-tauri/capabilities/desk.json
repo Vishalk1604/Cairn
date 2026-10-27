@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desk",
+  "description": "Today pinned to the desktop: it only draws what the main window sends, asks it for things, and can be moved.",
+  "windows": [
+    "desk"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit-to",
+    "core:window:allow-start-dragging"
+  ]
+}

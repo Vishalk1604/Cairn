@@ -23,6 +23,7 @@ import { TaskPanel } from './components/TaskPanel'
 import { DoneView, TasksView } from './components/TasksView'
 import { TitleBar } from './components/TitleBar'
 import { TodayView } from './components/TodayView'
+import { useDeskData, useDeskFeed } from './desk/useDesk'
 
 type Editing = { kind: 'task'; reminder?: Reminder; text?: string } | { kind: 'note'; note?: Note }
 
@@ -106,6 +107,20 @@ export function App() {
     const reminder = active.find((r) => r.id === id)
     setSection('tasks')
     if (reminder) setEditing({ kind: 'task', reminder })
+  })
+
+  // Today pinned to the desktop: told what to show, and asked to tick a task off or open up.
+  useDeskFeed(useDeskData(active, now), (action) => {
+    const reminder = action.id ? active.find((r) => r.id === action.id) : undefined
+    if (action.kind === 'complete') {
+      if (reminder) void actions.complete(reminder)
+      return
+    }
+    void platform.showWindow().then(() => platform.setWindowMode('full'))
+    if (reminder) {
+      setSection('tasks')
+      setEditing({ kind: 'task', reminder })
+    }
   })
 
   const overdue = active.filter((r) => urgencyOf(r, now) === 'overdue').length

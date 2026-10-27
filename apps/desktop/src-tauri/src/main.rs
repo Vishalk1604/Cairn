@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod classroom;
+mod desk;
 mod focus;
 mod icon;
 mod media;
@@ -123,6 +124,8 @@ fn main() {
             media::media_open,
             classroom::classroom_default_dir,
             classroom::classroom_write,
+            desk::desk_pin,
+            desk::desk_pinned,
         ])
         .setup(|app| {
             tray::create(app.handle())?;
@@ -138,10 +141,26 @@ fn main() {
             if !std::env::args().any(|arg| arg == AUTOSTART_FLAG) {
                 show_main_window(app.handle());
             }
+            // Pinned to the desktop: there from the start, login launches included.
+            if window_mode::pinned(app.handle()) {
+                if let Err(error) = desk::open(app.handle()) {
+                    eprintln!("Could not pin Cairn to the desktop: {error}");
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
             let Some(webview) = window.app_handle().get_webview_window(window.label()) else { return };
+            if window.label() == desk::DESK_LABEL {
+                match event {
+                    WindowEvent::Moved(_) | WindowEvent::Resized(_) => window_mode::remember_desk(&webview),
+                    WindowEvent::Focused(false) => window_mode::persist(window.app_handle()),
+                    // Alt+F4 on the desktop: it stays; unpinning is in Settings.
+                    WindowEvent::CloseRequested { api, .. } => api.prevent_close(),
+                    _ => {}
+                }
+                return;
+            }
             match event {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => window_mode::remember(&webview),
                 WindowEvent::Focused(focused) => {

@@ -2336,3 +2336,197 @@ dialog.confirm {
 .swatch.on {
   border-color: var(--fg);
 }
+
+/* ── Today pinned to the desktop ─────────────────────────────────────── */
+
+/* The window itself is see-through; the panel is tinted enough to read on
+   any wallpaper, light or dark, and blurs what is behind it where Windows
+   lets it. */
+.desk-window,
+.desk-window body,
+.desk-window #root {
+  background: transparent;
+  overflow: hidden;
+}
+
+.desk {
+  --desk-panel: rgb(18 18 20 / 0.74);
+  --desk-row: rgb(255 255 255 / 0.07);
+  --desk-edge: rgb(255 255 255 / 0.12);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--desk-edge);
+  border-radius: 18px;
+  background: var(--desk-panel);
+  backdrop-filter: blur(18px) saturate(1.2);
+  color: var(--fg);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  user-select: none;
+  cursor: default;
+}
+
+@media (prefers-color-scheme: light) {
+  .desk {
+    --desk-panel: rgb(250 250 250 / 0.8);
+    --desk-row: rgb(0 0 0 / 0.045);
+    --desk-edge: rgb(0 0 0 / 0.1);
+    text-shadow: none;
+  }
+}
+
+.desk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 4px 6px;
+  cursor: grab;
+}
+
+.desk-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.desk-date {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.desk-row {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 12px 6px 14px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--desk-row);
+}
+
+/* The urgency's colour down the left edge; the class's, if any, down the right. */
+.desk-row::before,
+.desk-row.course::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--urgency);
+}
+
+.desk-row.course::after {
+  inset: 0 0 0 auto;
+  background: var(--course);
+}
+
+/* Late: a slow pulse, so it catches the eye without nagging. */
+.desk-row[data-urgency='overdue']::before {
+  animation: desk-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes desk-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-row[data-urgency='overdue']::before {
+    animation: none;
+  }
+}
+
+.desk-check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid var(--urgency);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.desk-check:hover {
+  background: color-mix(in srgb, var(--urgency) 30%, transparent);
+}
+
+.desk-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.desk-task {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-when {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-row[data-urgency='overdue'] .desk-when {
+  color: var(--urgency);
+}
+
+.desk-cue {
+  font-weight: 600;
+}
+
+.desk-empty {
+  margin: 4px;
+  color: var(--muted);
+}
+
+.desk-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.desk-foot:empty {
+  display: none;
+}
+
+/* ?preview&desk in a browser: a stand-in wallpaper behind the panel. */
+.desk-preview .desk-wallpaper {
+  min-height: 100vh;
+  display: grid;
+  place-items: start end;
+  padding: 24px;
+  background: linear-gradient(135deg, #3a6186 0%, #89253e 55%, #f4d58d 100%);
+}
+
+.desk-preview .desk-frame {
+  width: 320px;
+  height: 400px;
+}

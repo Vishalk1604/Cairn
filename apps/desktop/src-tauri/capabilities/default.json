@@ -13,6 +13,7 @@
     "core:window:allow-unminimize",
     "core:window:allow-is-visible",
     "core:event:allow-listen",
+    "core:event:allow-emit-to",
     "notification:default",
     "store:default",
     "dialog:allow-open",

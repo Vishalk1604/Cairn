@@ -2,12 +2,13 @@ import type { UrgencyLevel } from '@cairn/core'
 import type { KeyValueStore } from '@cairn/sync'
 import type { AppNotification, PermissionState } from '@cairn/ui'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { emitTo, listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, onAction, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { load, type Store } from '@tauri-apps/plugin-store'
-import type { DesktopClassroom, DesktopMedia, DesktopPlatform } from './types'
+import { DESK_ACTION_EVENT, DESK_DATA_EVENT, DESK_LABEL, type DeskAction } from '../desk/feed'
+import type { DesktopClassroom, DesktopDesk, DesktopMedia, DesktopPlatform } from './types'
 
 /** Raised by the shell for the hotkey and the tray menu item. */
 const QUICK_CAPTURE_EVENT = 'cairn://quick-capture'
@@ -73,6 +74,13 @@ const classroom: DesktopClassroom = {
   write: (folder, path, bytes) =>
     invoke<string>('classroom_write', bytes, { headers: { 'x-dir': encodeURIComponent(folder), 'x-path': encodeURIComponent(path) } }),
   open: (folder) => invoke('media_open', { dir: folder }),
+}
+
+const desk: DesktopDesk = {
+  pinned: () => invoke<boolean>('desk_pinned'),
+  pin: (enabled) => invoke<boolean>('desk_pin', { enabled }),
+  send: (data) => emitTo(DESK_LABEL, DESK_DATA_EVENT, data),
+  onAction: (handler) => listen<DeskAction>(DESK_ACTION_EVENT, (event) => handler(event.payload)),
 }
 
 export const tauriPlatform: DesktopPlatform = {
@@ -154,6 +162,7 @@ export const tauriPlatform: DesktopPlatform = {
 
   media,
   classroom,
+  desk,
 
   async authorize(buildUrl) {
     // The shell opens a loopback port first, because the redirect address
