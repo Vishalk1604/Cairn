@@ -1,5 +1,5 @@
 import type { NoteQuery } from '@cairn/sync'
-import { describeReading, readerStatus, recycleBin, type AiStatus, type WorkerAccount } from '@cairn/ui'
+import { accountProblem, CLASSROOM_FROM_EMAIL, describeReading, readerStatus, recycleBin, type AiStatus, type WorkerAccount } from '@cairn/ui'
 import { useEffect, useState } from 'react'
 import { useClassroomFiles } from '../app/classroomFiles'
 import { useCairn } from '../app/context'
@@ -124,8 +124,13 @@ function AccountRow({ account }: { account: WorkerAccount }) {
   const detail = [account.role === 'owner' ? 'Holds your notes' : 'Read only', `reads ${describeReading(account)}`, account.services.includes('files') ? 'class files allowed' : '']
     .filter(Boolean)
     .join(' · ')
+  const problem = accountProblem(account)
   return (
-    <Row title={account.email} detail={account.problem ?? detail} tone={account.problem ? 'danger' : undefined}>
+    <Row
+      title={account.email}
+      detail={problem ?? (account.classroomVia === 'email' && account.watch.classroom ? `${detail}. ${CLASSROOM_FROM_EMAIL}.` : detail)}
+      tone={problem ? 'danger' : undefined}
+    >
       <Managed />
     </Row>
   )

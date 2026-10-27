@@ -1,5 +1,7 @@
 import {
   addLocalDays,
+  classroomMailMessage,
+  classroomPostKey,
   completeReminder,
   createReminder,
   DAY,
@@ -10,6 +12,7 @@ import {
   isImportant,
   KEEP_RECORDS,
   messageOf,
+  parseClassroomMail,
   planAutoTasks,
   readMail,
   recordOf,
@@ -28,12 +31,12 @@ import {
 } from '@cairn/core'
 import { AiError, triageMail, type AiSetup } from '@cairn/sync/ai'
 import { announcementMessage, courseWorkMessage, GoogleApiError, type Course } from '@cairn/sync/google'
-import type { InboxSettings, ReaderDoc } from '@cairn/sync/worker'
-import { aiSetupOf, publishAccounts } from './accounts'
+import { CLASSROOM_BLOCKED, type InboxSettings, type ReaderDoc } from '@cairn/sync/worker'
+import { aiSetupOf, classroomByEmail, publishAccounts } from './accounts'
 import { openJson, sealJson, SealError } from './crypto'
 import { sendPush, type Push } from './fcm'
 import type { Firestore, Write } from './firestore'
-import { bodyText, courseFeed, courses, CursorExpired, header, mailAdded, mailCursor, mailMessage, NEVER, NOISY, servicesOf } from './google'
+import { bodyText, classroomHtml, courseFeed, courses, CursorExpired, header, mailAdded, mailCursor, mailMessage, NEVER, NOISY, servicesOf, type GmailMessage } from './google'
 import { announcements, worthAnnouncing } from './notify'
 import { accessToken, AccountSignedOut, firestoreFor, type Ctx } from './session'
 import type { AccountRow, UserRow } from './store'
@@ -84,6 +87,10 @@ const HEARTBEAT_MS = 15 * 60_000
 const ANNOUNCED_KEPT = 300
 const OVERFLOW_SLACK = 25
 const CLASSROOM_SENDER = /classroom\.google\.com/i
+/** With Classroom's API turned away, it is tried again this often in case the college changes its mind. */
+const BLOCKED_RETRY = DAY
+/** Posts remembered by course and title, to match one read from email with the API's. */
+const POST_KEYS = 300
 
 interface MailState {
   cursor?: string
@@ -111,6 +118,8 @@ interface ClassState {
   seen?: string[]
   work?: Record<string, WorkState>
   on?: boolean
+  /** When the API last turned the account away; until a day on, Classroom is read from email. */
+  blockedAt?: number
 }
 
 interface Pending {
@@ -134,10 +143,23 @@ export interface UserState {
   sent: string[]
   reader?: { at: number; hash: string }
   ai?: { model?: string; error?: string }
+  /** Posts the API read, by classroomPostKey, so the same post from an email is let go. */
+  apiPosts?: string[]
+  /** Posts read from email without the ids to match the API's, by classroomPostKey, with their record id. */
+  emailPosts?: [string, string][]
 }
 
 export function emptyState(): UserState {
-  return { mail: {}, classroom: {}, pending: {}, folders: [], announced: [], recent: [], sent: [] }
+  return { mail: {}, classroom: {}, pending: {}, folders: [], announced: [], recent: [], sent: [], apiPosts: [], emailPosts: [] }
+}
+
+/**
+ * The Classroom API turning a whole account away: the college's admin has
+ * it off for students (ClassroomApiDisabled, PERMISSION_DENIED) or the
+ * permission is missing. Not a rate limit, and not a sign-out.
+ */
+function classroomRefused(error: unknown): boolean {
+  return error instanceof GoogleApiError && error.status === 403 && !error.rateLimited
 }
 
 export const stateContext = (uid: string) => `state:${uid}`
@@ -318,22 +340,43 @@ class Check {
   // ------------------------------------------------------------ reading
 
   private async read(account: AccountRow): Promise<void> {
+    const { now } = this.ctx
     const services = servicesOf(account.scopes)
     const mail = account.watchMail && services.includes('mail')
     const classroom = account.watchClassroom && services.includes('classroom')
     const mailState = (this.state.mail[account.email] ??= {})
     const classState = (this.state.classroom[account.email] ??= {})
     // Switched on since the last run: start from now, not from wherever it was left.
-    if (mail && !mailState.on) Object.assign(mailState, { cursor: undefined, queue: [], seen: [] })
-    if (classroom && !classState.on) Object.assign(classState, { since: undefined, seen: [], work: {}, next: 0 })
-    mailState.on = mail
+    if (classroom && !classState.on) Object.assign(classState, { since: undefined, seen: [], work: {}, next: 0, blockedAt: undefined })
     classState.on = classroom
-    if (!mail && !classroom) return
+    // Turned away by the API: Classroom's own emails stand in for it, and the API is tried again a day on.
+    const api = classroom && (classState.blockedAt === undefined || now - classState.blockedAt >= BLOCKED_RETRY)
+    let byEmail = classroomByEmail(account) && !api
+    const gmail = () => mail || byEmail
+    if (gmail() && !mailState.on) Object.assign(mailState, { cursor: undefined, queue: [], seen: [] })
+    if (!gmail() && !api) {
+      mailState.on = false
+      return
+    }
     if (!this.ctx.net.can(2, KEEP_FOR_WRITES)) return
     try {
       const { accessToken: token } = await accessToken(this.ctx, account, 'run')
-      if (mail) await this.readMail(account, token, mailState, classroom)
-      if (classroom) await this.readClassroom(account, token, classState, services.includes('announcements'))
+      if (api) {
+        try {
+          await this.readClassroom(account, token, classState, services.includes('announcements'))
+          if (account.problem === CLASSROOM_BLOCKED) await this.classroomProblem(account, null)
+          classState.blockedAt = undefined
+        } catch (error) {
+          if (!classroomRefused(error)) throw error
+          classState.blockedAt = now
+          await this.classroomProblem(account, CLASSROOM_BLOCKED)
+          // Straight to the emails, this run: Gmail is read below.
+          byEmail = services.includes('mail')
+          if (byEmail && !mailState.on) Object.assign(mailState, { cursor: undefined, queue: [], seen: [] })
+        }
+      }
+      mailState.on = gmail()
+      if (gmail()) await this.readMail(account, token, mailState, { mail, classroomApi: classroom && !byEmail, byEmail })
       this.status[account.email] = { checkedAt: this.ctx.now }
     } catch (error) {
       if (error instanceof AccountSignedOut) this.accountsChanged = true
@@ -342,7 +385,18 @@ class Check {
     }
   }
 
-  private async readMail(account: AccountRow, token: string, m: MailState, classroom: boolean): Promise<void> {
+  /** Records, or clears, why an account's Classroom is read from email, for the phone to show. */
+  private async classroomProblem(account: AccountRow, problem: string | null): Promise<void> {
+    const row = await this.ctx.store.account(this.uid, account.email)
+    if (!row || row.problem === problem || (problem === null && row.problem !== CLASSROOM_BLOCKED)) return
+    // Being signed out says more, and is not overwritten.
+    if (problem && row.problem && row.problem !== CLASSROOM_BLOCKED) return
+    await this.ctx.store.putAccount({ ...row, problem })
+    account.problem = problem
+    this.accountsChanged = true
+  }
+
+  private async readMail(account: AccountRow, token: string, m: MailState, read: { mail: boolean; classroomApi: boolean; byEmail: boolean }): Promise<void> {
     const { net, now } = this.ctx
     const sorting = this.ai !== null
     if (!m.cursor) {
@@ -372,7 +426,10 @@ class Check {
       seen.add(batch[i]!)
       if (!got) continue
       const labels = got.labelIds ?? []
-      if (labels.some((l) => NEVER.includes(l)) || (!sorting && labels.some((l) => NOISY.includes(l)))) continue
+      const fromClassroom = CLASSROOM_SENDER.test(header(got, 'from'))
+      // Read only for Classroom's emails, the rest is not this person's to have read.
+      if (!read.mail && !(read.byEmail && fromClassroom)) continue
+      if (labels.some((l) => NEVER.includes(l)) || (!sorting && !fromClassroom && labels.some((l) => NOISY.includes(l)))) continue
       const found: MailMessage = {
         id: got.id,
         account: account.email,
@@ -383,11 +440,46 @@ class Check {
         ...(got.threadId ? { threadId: got.threadId } : {}),
         ...(sorting ? { text: bodyText(got) } : {}),
       }
-      // With Classroom read directly, its notification emails would only repeat it.
-      if (classroom && CLASSROOM_SENDER.test(found.from)) continue
+      if (fromClassroom) {
+        // With Classroom read directly, its notification emails would only repeat it.
+        if (read.classroomApi) continue
+        if (read.byEmail) {
+          const post = await this.classroomEmail(token, got, found)
+          if (post !== undefined) {
+            if (post) this.messages.push(post)
+            continue
+          }
+        }
+      }
       this.messages.push(found)
     }
     m.seen = [...seen].slice(-MAIL_SEEN)
+  }
+
+  /**
+   * A Classroom notification email as the post it announces, null when it is
+   * one already shown (or not shown at all, like course material), and
+   * undefined when it is not a post — a grade, a comment — to leave as mail.
+   */
+  private async classroomEmail(token: string, got: GmailMessage, found: MailMessage): Promise<MailMessage | null | undefined> {
+    const { net } = this.ctx
+    // Without a model the body was not fetched; Classroom's emails need theirs.
+    let full = got
+    if (!got.payload?.parts && !got.payload?.body?.data) {
+      if (!net.can(1, KEEP_FOR_WRITES)) return null
+      full = (await mailMessage(net.fetch, token, got.id, true)) ?? got
+    }
+    const message = { ...found, text: found.text ?? bodyText(full) }
+    const parsed = parseClassroomMail(onWall(message, this.zone), classroomHtml(full))
+    if (!parsed) return undefined
+    const due = parsed.due ? { ...parsed, due: { ...parsed.due, dueAt: this.zone.fromWall(parsed.due.dueAt) } } : parsed
+    const post = classroomMailMessage(message, due)
+    if (!post) return null
+    const key = classroomPostKey(parsed.course, parsed.title)
+    const known = Object.values(this.state.classroom).some((c) => c.seen?.includes(post.id))
+    if (known || this.state.apiPosts?.includes(key)) return null
+    if (post.id.startsWith('classroom-email-')) this.state.emailPosts = [...(this.state.emailPosts ?? []).filter(([k]) => k !== key), [key, post.id] as [string, string]].slice(-POST_KEYS)
+    return post
   }
 
   private async readClassroom(account: AccountRow, token: string, c: ClassState, withAnnouncements: boolean): Promise<void> {
@@ -431,12 +523,14 @@ class Check {
         if (before && (before.submitted !== after.submitted || before.due !== after.due || before.title !== after.title)) this.changes.push({ message: post, before, after })
         delete work[item.id]
         work[item.id] = after
+        this.rememberApiPost(post)
         if (seen.has(post.id)) continue
         seen.add(post.id)
         if (post.receivedAt >= c.since && !submitted) this.messages.push(post)
       }
       for (const announcement of feed.announcements ?? []) {
         const post = announcementMessage(course, announcement, account.email)
+        this.rememberApiPost(post)
         if (seen.has(post.id)) continue
         seen.add(post.id)
         if (post.receivedAt >= c.since) this.messages.push(post)
@@ -445,6 +539,16 @@ class Check {
     c.seen = [...seen].slice(-POSTS_SEEN)
     const ids = Object.keys(work)
     for (const id of ids.slice(0, Math.max(0, ids.length - WORK_KEPT))) delete work[id]
+  }
+
+  /** Notes a post the API read, so the same one from an email is let go. */
+  private rememberApiPost(post: MailMessage): void {
+    const key = classroomPostKey(post.classroom!.course, post.subject)
+    const keys = (this.state.apiPosts ??= [])
+    if (!keys.includes(key)) {
+      keys.push(key)
+      if (keys.length > POST_KEYS) keys.splice(0, keys.length - POST_KEYS)
+    }
   }
 
   private async loadSettings(fresh: boolean): Promise<void> {
@@ -482,7 +586,19 @@ class Check {
       fresh.push(record)
     }
 
-    const writes: Write[] = fresh.map((r) => ({ kind: 'set', path: path(r.id), data: r, mask: Object.keys(r) }))
+    // A post read from email is only written if the API has not written it first: the API's says more.
+    const writes: Write[] = fresh.map((r) => ({ kind: 'set', path: path(r.id), data: r, mask: Object.keys(r), ...(r.classroom?.fromEmail ? { exists: false } : {}) }))
+    // And one read from email under an id of its own goes once the API turns it up.
+    const emailPosts = new Map(this.state.emailPosts ?? [])
+    for (const r of fresh) {
+      if (!r.classroom || r.classroom.fromEmail) continue
+      const twin = emailPosts.get(classroomPostKey(r.classroom.course, r.subject))
+      if (twin) {
+        writes.push({ kind: 'delete', path: path(twin) })
+        emailPosts.delete(classroomPostKey(r.classroom.course, r.subject))
+      }
+    }
+    this.state.emailPosts = [...emailPosts]
     for (const change of this.changes) {
       writes.push({ kind: 'set', path: path(change.message.id), data: { classroom: change.message.classroom, updatedAt: now }, mask: ['classroom', 'updatedAt'], exists: true })
     }

@@ -1,11 +1,20 @@
 import { modelsFor, storedAiSetup, type AiSetup } from '@cairn/sync/ai'
-import type { AccountsDoc, WorkerAccount } from '@cairn/sync/worker'
+import { CLASSROOM_BLOCKED, type AccountsDoc, type WorkerAccount } from '@cairn/sync/worker'
 import { open } from './crypto'
 import type { Env } from './env'
 import type { Firestore } from './firestore'
 import { servicesOf } from './google'
 import { firestoreFor, type Ctx } from './session'
 import type { AccountRow, UserRow } from './store'
+
+/**
+ * Whether Classroom is read from its notification emails: chosen, with
+ * Gmail granted, and the API either never granted or turned away.
+ */
+export function classroomByEmail(row: Pick<AccountRow, 'scopes' | 'watchClassroom' | 'problem'>): boolean {
+  const services = servicesOf(row.scopes)
+  return row.watchClassroom && services.includes('mail') && (!services.includes('classroom') || row.problem === CLASSROOM_BLOCKED)
+}
 
 /**
  * The accounts document the apps show: who is connected, for what, and
@@ -21,6 +30,7 @@ export function accountsDoc(rows: readonly AccountRow[], ai: AiSetup | null, now
         services: servicesOf(row.scopes),
         watch: { mail: row.watchMail, classroom: row.watchClassroom },
         ...(row.problem ? { problem: row.problem } : {}),
+        ...(classroomByEmail(row) ? { classroomVia: 'email' as const } : {}),
       }),
     ),
     ai: ai ? { on: true, ...(modelsFor(ai)[0] ? { preferred: modelsFor(ai)[0]!.label } : {}) } : { on: false },

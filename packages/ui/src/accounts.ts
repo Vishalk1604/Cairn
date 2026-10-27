@@ -1,5 +1,5 @@
 import { createPkce, randomState, readRedirect, webCrypto } from '@cairn/auth'
-import type { AccountsDoc, Service, Want, WorkerAccount, WorkerClient } from '@cairn/sync'
+import { CLASSROOM_BLOCKED, type AccountsDoc, type Service, type Want, type WorkerAccount, type WorkerClient } from '@cairn/sync'
 import type { Platform } from './platform'
 
 /**
@@ -91,9 +91,22 @@ export function accountsOf(doc: AccountsDoc | null | undefined): WorkerAccount[]
   return Array.isArray(doc?.accounts) ? doc.accounts.filter((a) => typeof a?.email === 'string') : []
 }
 
-/** Whether Gmail or Classroom is being read for an account: granted, and chosen. */
+/** Whether Gmail or Classroom is being read for an account: granted (or, for Classroom, read from its emails), and chosen. */
 export function reading(account: WorkerAccount, what: 'mail' | 'classroom'): boolean {
+  if (what === 'classroom' && account.classroomVia === 'email') return account.watch.classroom
   return account.services.includes(what) && account.watch[what]
+}
+
+/** Shown on an account whose Classroom comes from its notification emails, so thinner posts are explained. */
+export const CLASSROOM_FROM_EMAIL = 'Reading Classroom from email: posts have less detail, and handing work in is not noticed'
+
+/**
+ * What is wrong with an account, if anything. The college keeping Classroom
+ * from apps is not something to fix on the phone, so it is said with the
+ * account's reading instead (CLASSROOM_FROM_EMAIL) rather than as an error.
+ */
+export function accountProblem(account: WorkerAccount): string | undefined {
+  return account.problem && account.problem !== CLASSROOM_BLOCKED ? account.problem : undefined
 }
 
 /** Accounts whose Classroom files may be saved: granted Drive read access as well as Classroom. */
@@ -101,8 +114,9 @@ export function fileReaders(accounts: readonly WorkerAccount[]): WorkerAccount[]
   return accounts.filter((a) => a.services.includes('files'))
 }
 
-/** "Gmail and Classroom", "Classroom", "nothing yet": what an account is read for, in a line. */
+/** "Gmail and Classroom", "Classroom (from email)", "nothing yet": what an account is read for, in a line. */
 export function describeReading(account: WorkerAccount): string {
-  const parts = [reading(account, 'mail') ? 'Gmail' : '', reading(account, 'classroom') ? 'Classroom' : ''].filter(Boolean)
+  const classroom = account.classroomVia === 'email' ? 'Classroom (from email)' : 'Classroom'
+  const parts = [reading(account, 'mail') ? 'Gmail' : '', reading(account, 'classroom') ? classroom : ''].filter(Boolean)
   return parts.length ? parts.join(' and ') : 'nothing yet'
 }

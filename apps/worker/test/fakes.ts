@@ -160,6 +160,8 @@ export interface AccountFixture {
   /** The refresh token Google accepts for it. */
   refresh: string
   scopes: string[]
+  /** Set when the college keeps Classroom's API from apps: every Classroom call is refused with it. */
+  classroomRefusal?: { status: number; reason: string; message: string }
 }
 
 /**
@@ -275,6 +277,8 @@ export class FakeCloud {
   private classroom(u: URL, init: RequestInit, reply: (v: unknown, s?: number) => Response): Response {
     const account = this.accounts.get(this.who(init))
     if (!account) return reply({ error: { message: 'no' } }, 401)
+    const refusal = account.classroomRefusal
+    if (refusal) return reply({ error: { code: refusal.status, status: 'PERMISSION_DENIED', message: refusal.message, details: [{ reason: refusal.reason }] } }, refusal.status)
     const parts = u.pathname.split('/').filter(Boolean)
     if (parts.length === 2) return reply({ courses: account.courses.map(({ id, name }) => ({ id, name })) })
     const course = account.courses.find((c) => c.id === decodeURIComponent(parts[2]!))

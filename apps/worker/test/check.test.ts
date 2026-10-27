@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { aiContext } from '../src/accounts'
+import { accountsDoc as accountsDocOf, aiContext } from '../src/accounts'
 import { checkUser } from '../src/check'
 import { seal } from '../src/crypto'
 import { forgetFcmToken } from '../src/fcm'
 import { Net } from '../src/net'
 import { sealRefresh, type Ctx } from '../src/session'
-import { FakeCloud, MemoryStore, serviceAccountJson, testEnv, type AccountFixture } from './fakes'
+import { FakeCloud, MemoryStore, serviceAccountJson, testEnv, type AccountFixture, type GmailMessageFixture } from './fakes'
 
 const SCOPES = [
   'openid',
@@ -242,6 +242,106 @@ describe('a person’s check', () => {
     await connect(ME, 'owner', fixture())
     await store.claim(UID, T0 + 5 * MIN, T0)
     expect(await check(T0)).toMatchObject({ busy: true })
+  })
+})
+
+describe('Classroom read from its emails', () => {
+  const CLASSROOM_EMAIL = (id: string, internalDate: number, over: Partial<GmailMessageFixture> = {}): GmailMessageFixture => ({
+    id,
+    from: '"Prof. Anita Rao (Classroom)" <no-reply@classroom.google.com>',
+    subject: 'New assignment: "DBMS Lab 4"',
+    body: 'Prof. Anita Rao posted a new assignment in CS301 DBMS\n\nNew assignment\nDue Oct 30, 11:59 PM\nDBMS Lab 4\n\nOpen <https://classroom.google.com/c/NjQ3MDk0NjE1MDk1/a/NjQ3MDk2MzQ1OTkz/details>',
+    internalDate,
+    ...over,
+  })
+  const BLOCKED = { status: 403, reason: 'ClassroomApiDisabled', message: 'The user is not permitted to access the Classroom API.' }
+  const accountsDoc = () => cloud.docs.get(`users/${UID}/settings/accounts`) as { accounts: { email: string; problem?: string; classroomVia?: string }[] }
+
+  it('reads them when the college turns the API away, says so on the account, and files the work as the API would', async () => {
+    await connect(ME, 'owner', fixture())
+    await connect(COLLEGE, 'source', fixture({ classroomRefusal: BLOCKED }))
+    const first = await check(T0)
+    expect(first.errors).toEqual([])
+    expect((await store.account(UID, COLLEGE))!.problem).toMatch(/reads Classroom from its emails/)
+    expect(accountsDoc().accounts.find((a) => a.email === COLLEGE)).toMatchObject({ classroomVia: 'email', problem: expect.stringMatching(/college/) })
+
+    const classroomCalls = fetched('classroom.googleapis.com')
+    const college = cloud.accounts.get(COLLEGE)!
+    college.added = [{ id: 'e1' }, { id: 'e2' }]
+    college.messages = {
+      e1: CLASSROOM_EMAIL('e1', T0 + MIN),
+      e2: { id: 'e2', from: 'Library <library@college.edu>', subject: 'Books due back Friday', body: 'Return your books.', internalDate: T0 + 2 * MIN },
+    }
+    await check(T0 + 10 * MIN)
+    // The same id, course and due date the API would have given it, in the Classroom tab.
+    expect(inbox('classroom-work-647096345993')).toMatchObject({
+      account: COLLEGE,
+      subject: 'DBMS Lab 4',
+      tasked: true,
+      classroom: { kind: 'work', courseId: '647094615095', course: 'CS301 DBMS', workId: '647096345993', fromEmail: true, due: { dueAt: Date.UTC(2026, 9, 30, 18, 29), allDay: false } },
+    })
+    expect(inbox('e1')).toBeUndefined()
+    // Ordinary mail is still read, because Gmail is on for the account.
+    expect(inbox('e2')).toBeDefined()
+    expect(cloud.docs.get(`users/${UID}/reminders/classroom-647096345993`)).toMatchObject({ title: 'DBMS Lab 4', dueAt: Date.UTC(2026, 9, 30, 18, 29), courseId: '647094615095' })
+    // The API is left alone for a day rather than asked every ten minutes.
+    expect(fetched('classroom.googleapis.com')).toBe(classroomCalls)
+  })
+
+  it('reads only Classroom\'s emails when Classroom was chosen without its permission and Gmail is off', async () => {
+    const scopes = SCOPES.filter((s) => !s.includes('classroom'))
+    await connect(ME, 'owner', fixture({ scopes }))
+    const row = (await store.account(UID, ME))!
+    await store.putAccount({ ...row, watchMail: false })
+    await check(T0)
+    const me = cloud.accounts.get(ME)!
+    me.added = [{ id: 'e1' }, { id: 'e2' }]
+    me.messages = { e1: CLASSROOM_EMAIL('e1', T0 + MIN), e2: { id: 'e2', from: 'friend@gmail.com', subject: 'Lunch?', internalDate: T0 + 2 * MIN } }
+    await check(T0 + 10 * MIN)
+    expect(inbox('classroom-work-647096345993')).toBeDefined()
+    expect(inbox('e2')).toBeUndefined()
+    expect(fetched('classroom.googleapis.com')).toBe(0)
+    // No problem to report: it was never granted, and the phone says Classroom is read from email.
+    const doc = accountsDocOf(await store.accounts(UID), null, T0)
+    expect(doc.accounts[0]).toMatchObject({ classroomVia: 'email' })
+    expect(doc.accounts[0]!.problem).toBeUndefined()
+  })
+
+  it('never writes over the API\'s record of the same post, and goes back to the API once it is allowed', async () => {
+    await connect(ME, 'owner', fixture({ classroomRefusal: BLOCKED }))
+    await check(T0)
+    // Another device, or the API before it was blocked, wrote the full record.
+    cloud.docs.set(`users/${UID}/inbox/classroom-work-647096345993`, { id: 'classroom-work-647096345993', subject: 'DBMS Lab 4', snippet: 'Normalise to BCNF.', classroom: { kind: 'work', courseId: '647094615095', course: 'CS301 DBMS' } })
+    const me = cloud.accounts.get(ME)!
+    me.added = [{ id: 'e1' }]
+    me.messages = { e1: CLASSROOM_EMAIL('e1', T0 + MIN) }
+    await check(T0 + 10 * MIN)
+    expect(inbox('classroom-work-647096345993')).toMatchObject({ snippet: 'Normalise to BCNF.' })
+    expect(inbox('classroom-work-647096345993')!.classroom.fromEmail).toBeUndefined()
+
+    // A day on, the college has relented: the API is read again and the account's problem goes.
+    delete me.classroomRefusal
+    me.added = []
+    await check(T0 + 25 * 60 * MIN)
+    expect((await store.account(UID, ME))!.problem).toBeNull()
+    expect(accountsDoc().accounts[0]!.classroomVia).toBeUndefined()
+  })
+
+  it('swaps a post read from an email with no link for the API\'s, once the API turns it up', async () => {
+    await connect(ME, 'owner', fixture({ classroomRefusal: BLOCKED }))
+    await check(T0)
+    const me = cloud.accounts.get(ME)!
+    me.added = [{ id: 'e1' }]
+    me.messages = { e1: CLASSROOM_EMAIL('e1', T0 + MIN, { body: 'Prof. Anita Rao posted a new assignment in CS301 DBMS\n\nDue Oct 30\nDBMS Lab 4' }) }
+    await check(T0 + 10 * MIN)
+    expect(inbox('classroom-email-e1')).toMatchObject({ classroom: { courseId: 'name:cs301 dbms' } })
+
+    delete me.classroomRefusal
+    me.added = []
+    me.courses = [{ id: '647094615095', name: 'CS301 DBMS', work: [{ id: 'w4', title: 'DBMS Lab 4', creationTime: new Date(T0 + 25 * 60 * MIN).toISOString() }], submitted: [], announcements: [] }]
+    await check(T0 + 25 * 60 * MIN + MIN)
+    expect(inbox('classroom-work-w4')).toBeDefined()
+    expect(inbox('classroom-email-e1')).toBeUndefined()
   })
 })
 

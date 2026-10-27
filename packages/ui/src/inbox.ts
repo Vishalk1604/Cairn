@@ -29,7 +29,7 @@ import {
   type WorkerAccount,
   type WorkerClient,
 } from '@cairn/sync'
-import { accountsOf, reading } from './accounts'
+import { accountProblem, accountsOf, reading } from './accounts'
 import { coursesIn, type CourseColorOverrides, type CourseEntry, type CourseSettings } from './courseColors'
 import { formatAgo } from './format'
 import type { Platform } from './platform'
@@ -363,7 +363,7 @@ export class InboxEngine {
     const classroomReaders = accounts.filter((a) => reading(a, 'classroom'))
     const checkedAt = this.reader?.checkedAt ?? null
     const problems = [
-      ...accounts.filter((a) => a.problem).map((a) => a.problem!),
+      ...accounts.flatMap((a) => accountProblem(a) ?? []),
       ...Object.entries(this.reader?.accounts ?? {})
         .filter(([, s]) => s.error)
         .map(([email, s]) => `${email}: ${s.error}`),

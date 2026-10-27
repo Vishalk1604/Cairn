@@ -1,6 +1,6 @@
 import { AiError, checkAiKey, modelsFor, readAiSetup, type AiSetup, type NoteQuery } from '@cairn/sync'
 import { DEFAULT_PROFILE, PROFILE_LIMIT } from '@cairn/core'
-import { readerStatus, reading, recycleBin, type WorkerAccount } from '@cairn/ui'
+import { accountProblem, CLASSROOM_FROM_EMAIL, readerStatus, reading, recycleBin, type WorkerAccount } from '@cairn/ui'
 import Constants from 'expo-constants'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ActivityIndicator, BackHandler, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -475,6 +475,7 @@ function AccountCard({
   onDisconnect?: () => void
 }) {
   const c = useColors()
+  const problem = accountProblem(account)
   const row = (what: 'mail' | 'classroom', title: string, detail: string) => (
     <Row
       title={title}
@@ -490,10 +491,10 @@ function AccountCard({
           <Text style={[styles.accountName, { color: c.fg }]} numberOfLines={1}>
             {account.email}
           </Text>
-          <Text style={[styles.rowDetail, { color: account.problem ? c.danger : c.muted }]}>{account.problem ?? (account.role === 'owner' ? 'Holds your notes' : 'Read only')}</Text>
+          <Text style={[styles.rowDetail, { color: problem ? c.danger : c.muted }]}>{problem ?? (account.role === 'owner' ? 'Holds your notes' : 'Read only')}</Text>
         </View>
       </View>
-      {account.problem && (
+      {problem && (
         <Row
           title="Connect again"
           detail="Google will ask once more"
@@ -502,7 +503,11 @@ function AccountCard({
         />
       )}
       {row('mail', 'Read Gmail', 'New mail from now on — important mail and deadlines picked out')}
-      {row('classroom', 'Read Google Classroom', 'New coursework and announcements, in the Classroom tab')}
+      {row(
+        'classroom',
+        'Read Google Classroom',
+        account.classroomVia === 'email' && account.watch.classroom ? CLASSROOM_FROM_EMAIL : 'New coursework and announcements, in the Classroom tab',
+      )}
       {onDisconnect && <Row title="Disconnect" detail="Cairn's server stops reading it and gives the permission back to Google" danger onPress={onDisconnect} />}
     </View>
   )

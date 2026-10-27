@@ -24,10 +24,13 @@ const FIREBASE_MS = 50 * 60_000
 export const refreshContext = (uid: string, email: string) => `refresh:${uid}:${email}`
 const tokenContext = (uid: string, email: string, purpose: string) => `token:${uid}:${email}:${purpose}`
 
+/** What the phone shows for an account Google signed Cairn out of. */
+export const signedOutProblem = (email: string) => `Google signed Cairn out of ${email}. Connect it again on your phone.`
+
 /** Google refused the account's refresh token: it was revoked or expired, and only a new consent brings it back. */
 export class AccountSignedOut extends Error {
   constructor(readonly email: string) {
-    super(`Google signed Cairn out of ${email}. Connect it again on your phone.`)
+    super(signedOutProblem(email))
     this.name = 'AccountSignedOut'
   }
 }
@@ -48,17 +51,19 @@ async function refreshAccount(ctx: Ctx, account: AccountRow, scopes?: readonly s
     fresh = await refresh(env, refreshToken, ctx.net.fetch, now, scopes)
   } catch (error) {
     if (error instanceof TokenError && error.needsReconsent) {
-      const problem = `Google signed Cairn out of ${account.email}. Connect it again on your phone.`
+      const problem = signedOutProblem(account.email)
       if (account.problem !== problem) await store.putAccount({ ...account, problem })
       throw new AccountSignedOut(account.email)
     }
     throw error
   }
+  // Being let back in clears only being signed out; a problem with Classroom itself is the check's to clear.
+  const problem = account.problem === signedOutProblem(account.email) ? null : account.problem
   // Google can hand back a new refresh token; the old one may stop working.
   if (fresh.refreshToken && fresh.refreshToken !== refreshToken) {
-    await store.putAccount({ ...account, refresh: await sealRefresh(env, account.uid, account.email, fresh.refreshToken), problem: null })
-  } else if (account.problem) {
-    await store.putAccount({ ...account, problem: null })
+    await store.putAccount({ ...account, refresh: await sealRefresh(env, account.uid, account.email, fresh.refreshToken), problem })
+  } else if (account.problem !== problem) {
+    await store.putAccount({ ...account, problem })
   }
   return fresh
 }

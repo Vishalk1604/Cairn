@@ -28,6 +28,20 @@ Everything it keeps is in Cloudflare D1, sealed with AES-GCM under the
 model. Where reading has got to is in D1 too; a copy of when it last checked
 is written to `users/{uid}/settings/reader` for the apps to show.
 
+## Classroom from email
+
+Some colleges keep the Classroom API from apps (Classroom answers 403
+`PERMISSION_DENIED`, often naming `ClassroomApiDisabled`), and some people
+choose Classroom without granting it. When that account's Gmail is granted,
+the Worker reads Classroom's own notification emails from
+`no-reply@classroom.google.com` instead: new assignments, quiz assignments,
+questions and announcements, in English. Each becomes the same Classroom
+record the API would write — the post's link carries the API's ids — so it
+shows in the Classroom tab, becomes a task when automatic tasks are on, and
+keeps Classroom's due date. The account gets a note saying so, which the phone
+shows. The API is tried again once a day, and its record always wins over one
+read from an email.
+
 ## How it fits the free plan
 
 A free Worker gets 10 ms of CPU, 50 requests out and 6 open connections per

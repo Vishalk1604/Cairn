@@ -205,6 +205,11 @@ export function bodyText(message: GmailMessage, limit = 8000): string | undefine
   return text?.slice(0, limit)
 }
 
+/** The start of the HTML part, where Classroom's emails keep the link to the post when the plain part has none. */
+export function classroomHtml(message: GmailMessage): string | undefined {
+  return firstOfType(message.payload, 'text/html')?.slice(0, 20_000)
+}
+
 export function header(message: GmailMessage, name: string): string {
   return message.payload?.headers?.find((h) => h.name.toLowerCase() === name)?.value ?? ''
 }

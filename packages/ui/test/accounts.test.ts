@@ -1,6 +1,7 @@
 import { WorkerClient, type AccountsDoc } from '@cairn/sync'
 import { describe, expect, it } from 'vitest'
-import { accountsOf, consentThroughWorker, describeReading, fileReaders, owner, reading, sources } from '../src'
+import { CLASSROOM_BLOCKED } from '@cairn/sync'
+import { accountProblem, accountsOf, consentThroughWorker, describeReading, fileReaders, owner, reading, sources } from '../src'
 
 // This package takes no runtime's type library; Node has URL all the same.
 declare const URL: { new (url: string): { origin: string; pathname: string; searchParams: { get(name: string): string | null } } }
@@ -28,6 +29,16 @@ describe('accounts', () => {
     expect(describeReading(mine!)).toBe('nothing yet')
     expect(describeReading(college!)).toBe('Gmail and Classroom')
     expect(fileReaders(accountsOf(doc)).map((a) => a.email)).toEqual(['me@college.edu'])
+  })
+
+  it('count Classroom read from its emails as read, and do not call the college\'s choice an error', () => {
+    const blocked = { email: 'me@college.edu', role: 'source' as const, services: ['mail' as const, 'classroom' as const], watch: { mail: false, classroom: true }, problem: CLASSROOM_BLOCKED, classroomVia: 'email' as const }
+    expect(reading(blocked, 'classroom')).toBe(true)
+    expect(describeReading(blocked)).toBe('Classroom (from email)')
+    expect(accountProblem(blocked)).toBeUndefined()
+    expect(accountProblem({ ...blocked, problem: 'Google signed Cairn out of me@college.edu.' })).toMatch(/signed Cairn out/)
+    // Without the permission at all, it is still read, from the emails.
+    expect(reading({ ...blocked, services: ['mail'], problem: undefined }, 'classroom')).toBe(true)
   })
 })
 

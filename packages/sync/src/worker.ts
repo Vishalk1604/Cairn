@@ -32,7 +32,16 @@ export interface WorkerAccount {
   watch: { mail: boolean; classroom: boolean }
   /** Set when the Worker cannot use the account, e.g. "Google signed Cairn out of it". */
   problem?: string
+  /**
+   * Classroom is read from its notification emails, because the account's
+   * college keeps the API from Cairn or it was never granted. Posts come with
+   * less detail, and handing work in is not followed.
+   */
+  classroomVia?: 'email'
 }
+
+/** The problem the Worker records on an account whose college keeps Classroom's API from Cairn; it then reads Classroom's emails. */
+export const CLASSROOM_BLOCKED = 'Your college does not let apps use Google Classroom, so Cairn reads Classroom from its emails instead.'
 
 /** settings/accounts, written by the Worker: who is connected and for what. Never a token. */
 export interface AccountsDoc {
