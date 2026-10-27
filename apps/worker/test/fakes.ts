@@ -173,6 +173,8 @@ export class FakeCloud {
   calls: { method: string; url: string; body?: string }[] = []
   accounts = new Map<string, AccountFixture>()
   pushes: Json[] = []
+  /** Data-only pushes, which show nothing on the phone. */
+  silent: Json[] = []
   /** What the model answers, by message subject; a function may throw or wait. */
   triage: (prompt: string) => Promise<Json | null> = async () => null
   /** Firebase uid for each Google account. */
@@ -235,7 +237,8 @@ export class FakeCloud {
     }
 
     if (u.host === 'fcm.googleapis.com') {
-      this.pushes.push((JSON.parse(body!) as { message: Json }).message)
+      const message = (JSON.parse(body!) as { message: Json }).message
+      ;(message.notification ? this.pushes : this.silent).push(message)
       return reply({ name: 'projects/x/messages/1' })
     }
     return reply({ error: `No fake for ${url}` }, 404)

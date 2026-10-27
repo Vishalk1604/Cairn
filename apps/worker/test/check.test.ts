@@ -145,6 +145,8 @@ describe('a person’s check', () => {
     // The phone hears about the hackathon, the coursework and the announcement — not the newsletter.
     expect(cloud.pushes.map((p) => (p.notification as { title: string }).title).sort()).toEqual(['DBMS', 'DBMS', 'Hackathons'])
     expect(cloud.pushes.map((p) => (p.data as { kind: string }).kind).sort()).toEqual(['classroom', 'classroom', 'inbox'])
+    // And the widget is woken to redraw, with nothing shown for it.
+    expect(cloud.silent).toEqual([{ token: 'push-token-0123456789abcdef', data: { kind: 'widget', classroom: '2', mail: '1' }, android: { priority: 'normal' } }])
 
     // Nothing new: one cheap look, no writes to the inbox, no push.
     const writes = cloud.calls.filter((c) => c.url.endsWith(':commit')).length

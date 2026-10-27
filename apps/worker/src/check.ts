@@ -34,7 +34,7 @@ import { announcementMessage, courseWorkMessage, GoogleApiError, type Course } f
 import { CLASSROOM_BLOCKED, type InboxSettings, type ReaderDoc } from '@cairn/sync/worker'
 import { aiSetupOf, classroomByEmail, publishAccounts } from './accounts'
 import { openJson, sealJson, SealError } from './crypto'
-import { sendPush, type Push } from './fcm'
+import { sendPush, widgetPush, type Push } from './fcm'
 import type { Firestore, Write } from './firestore'
 import { bodyText, classroomHtml, courseFeed, courses, CursorExpired, header, mailAdded, mailCursor, mailMessage, NEVER, NOISY, servicesOf, type GmailMessage } from './google'
 import { announcements, worthAnnouncing } from './notify'
@@ -785,7 +785,8 @@ class Check {
     const fresh = records.filter((r) => !announced.has(r.id) && worthAnnouncing(r, this.senders))
     if (fresh.length === 0) return
     this.state.announced = [...this.state.announced, ...fresh.map((r) => r.id)].slice(-ANNOUNCED_KEPT)
-    await this.push(announcements(fresh, this.ctx.now, this.zone))
+    const classroom = fresh.filter((r) => r.classroom).length
+    await this.push([...announcements(fresh, this.ctx.now, this.zone), widgetPush(classroom, fresh.length - classroom)])
   }
 
   private async push(pushes: readonly Push[]): Promise<void> {

@@ -83,6 +83,17 @@ export interface Push {
   tag: string
   /** What a tap opens: kind is 'classroom', 'inbox', 'task' or 'today'; id the record or task. */
   data: Record<string, string>
+  /** Shows nothing: only wakes the phone's widget to draw itself again (data only, so the app's code runs). */
+  silent?: boolean
+}
+
+/**
+ * Follows the notifications of a check, so the home-screen widget redraws
+ * with its counts even while Cairn is closed. Normal priority: it can wait
+ * until the phone wakes, which is when the widget is seen anyway.
+ */
+export function widgetPush(classroom: number, mail: number): Push {
+  return { title: '', body: '', tag: 'widget', data: { kind: 'widget', classroom: String(classroom), mail: String(mail) }, silent: true }
 }
 
 /** The phone's notification channels; the app creates them. */
@@ -103,15 +114,17 @@ export async function sendPush(env: Env, store: Store, fetchFn: FetchFn, tokens:
       method: 'POST',
       headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: {
-          token,
-          notification: { title: push.title, body: push.body },
-          data: push.data,
-          android: {
-            priority: 'high',
-            notification: { tag: push.tag, channel_id: push.data.kind === 'today' || push.data.kind === 'task' ? CHANNEL.digest : CHANNEL.inbox },
-          },
-        },
+        message: push.silent
+          ? { token, data: push.data, android: { priority: 'normal' } }
+          : {
+              token,
+              notification: { title: push.title, body: push.body },
+              data: push.data,
+              android: {
+                priority: 'high',
+                notification: { tag: push.tag, channel_id: push.data.kind === 'today' || push.data.kind === 'task' ? CHANNEL.digest : CHANNEL.inbox },
+              },
+            },
       }),
     })
     if (response.ok) {
