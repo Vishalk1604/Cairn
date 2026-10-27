@@ -147,10 +147,10 @@ describe('a person’s check', () => {
     expect(cloud.pushes.map((p) => (p.data as { kind: string }).kind).sort()).toEqual(['classroom', 'classroom', 'inbox'])
 
     // Nothing new: one cheap look, no writes to the inbox, no push.
-    const writes = cloud.calls.filter((c) => c.url.endsWith(':batchWrite')).length
+    const writes = cloud.calls.filter((c) => c.url.endsWith(':commit')).length
     me.added = []
     await check(T0 + 20 * MIN)
-    expect(cloud.calls.filter((c) => c.url.endsWith(':batchWrite')).length).toBe(writes)
+    expect(cloud.calls.filter((c) => c.url.endsWith(':commit')).length).toBe(writes)
     expect(cloud.pushes).toHaveLength(3)
 
     // Handing the work in ticks its task off.

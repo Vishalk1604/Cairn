@@ -14,13 +14,13 @@ crons = ["*/10 * * * *"]
 # This Worker's own address, as `wrangler deploy` prints it. Google sends the
 # browser back to PUBLIC_URL/auth/callback, so add exactly that as an
 # authorized redirect URI on the Web client in Google Cloud.
-PUBLIC_URL = "https://cairn-worker.REPLACE-WITH-YOUR-SUBDOMAIN.workers.dev"
+PUBLIC_URL = "https://cairn-worker.vishalkarun0205.workers.dev"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "cairn"
 # From `wrangler d1 create cairn`.
-database_id = "REPLACE-WITH-YOUR-D1-DATABASE-ID"
+database_id = "3a3f5ccc-c8e9-4785-92e0-e707d3158da7"
 migrations_dir = "migrations"
 
 # Secrets, set once with `wrangler secret put NAME` and never committed:

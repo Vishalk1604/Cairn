@@ -11,7 +11,7 @@ import type { AiSetup } from './ai'
  * or set VITE_CAIRN_WORKER_URL for the desktop and EXPO_PUBLIC_CAIRN_WORKER_URL
  * for the phone. See apps/worker/README.md.
  */
-export const CAIRN_WORKER_URL = 'https://cairn-worker.example.workers.dev'
+export const CAIRN_WORKER_URL = 'https://cairn-worker.vishalkarun0205.workers.dev'
 
 /** What an account can be read for, as the Worker reports it. */
 export type Service = 'drive' | 'mail' | 'classroom' | 'announcements' | 'files'
@@ -95,11 +95,14 @@ export interface WorkerClientOptions {
   fetchFn?: WorkerFetch
 }
 
+const TOKEN_SLACK_MS = 5 * 60_000
+
 /** The Worker's API, as the apps call it. */
 export class WorkerClient {
   readonly url: string
   private readonly idToken: () => Promise<string | null>
   private readonly fetchFn?: WorkerFetch
+  private readonly tokens = new Map<string, Promise<{ accessToken: string; expiresAt: number }>>()
 
   constructor(options: WorkerClientOptions) {
     this.url = (options.url || CAIRN_WORKER_URL).replace(/\/+$/, '')
@@ -142,8 +145,27 @@ export class WorkerClient {
     await this.call('DELETE', '/me')
   }
 
+  /**
+   * A short-lived Google access token for one of the caller's accounts. One
+   * is kept until five minutes before it runs out, so a media pass that
+   * finds nothing to do does not cost the Worker a request each time.
+   */
   async token(account: string, purpose: TokenPurpose): Promise<{ accessToken: string; expiresAt: number }> {
-    return this.call('GET', `/token?account=${encodeURIComponent(account)}&purpose=${purpose}`)
+    const key = `${account}\n${purpose}`
+    const held = this.tokens.get(key)
+    if (held) {
+      const token = await held.catch(() => null)
+      if (token && token.expiresAt - TOKEN_SLACK_MS > Date.now()) return token
+    }
+    const asked = this.call<{ accessToken: string; expiresAt: number }>('GET', `/token?account=${encodeURIComponent(account)}&purpose=${purpose}`)
+    this.tokens.set(key, asked)
+    asked.catch(() => this.tokens.get(key) === asked && this.tokens.delete(key))
+    return asked
+  }
+
+  /** Drops the tokens held, as on signing out or after Google refused one. */
+  forgetTokens(): void {
+    this.tokens.clear()
   }
 
   /** Checks this person's mail and Classroom now. Resolves once what was found is in Firestore. */

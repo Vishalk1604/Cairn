@@ -100,6 +100,7 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
 
   const signOut = useCallback(async () => {
     await forgetPushToken(worker).catch(() => {})
+    worker.forgetTokens()
     sync.current?.stop()
     sync.current = null
     await signOutOfFirebase().catch(() => {})

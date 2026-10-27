@@ -39,6 +39,9 @@ export async function token(ctx: Ctx, uid: string, url: URL): Promise<Response> 
 
 export async function sync(ctx: Ctx, uid: string): Promise<Response> {
   const result = await checkUser(ctx, uid, { aiUntil: Date.now() + SYNC_AI_MS })
+  // Asked for by hand, so it is also when a missing or stale accounts
+  // document (which the apps' switches come from) gets written again.
+  await publishAccounts(ctx, uid).catch((e: unknown) => console.warn('Could not write the accounts document', e))
   return json({ checkedAt: result.checkedAt, found: result.found, ...(result.busy ? { busy: true } : {}), ...(result.errors.length ? { errors: result.errors } : {}) })
 }
 

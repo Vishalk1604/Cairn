@@ -292,15 +292,20 @@ export class FakeCloud {
     const root = '/v1/projects/cairn-test/databases/(default)/documents'
     const path = decodeURIComponent(u.pathname)
     const strip = (name: string) => name.slice('projects/cairn-test/databases/(default)/documents/'.length)
-    if (path === `${root}:batchWrite`) {
+    // As Firestore does: batchWrite needs admin credentials, which a person's
+    // ID token is not.
+    if (path === `${root}:batchWrite`) return reply({ error: { message: 'Batch writes require admin authentication.' } }, 403)
+    if (path === `${root}:commit`) {
       const { writes } = JSON.parse(body!) as { writes: { update?: { name: string; fields: never }; delete?: string; updateMask?: { fieldPaths: string[] }; currentDocument?: { exists: boolean } }[] }
-      const status = writes.map((w) => {
+      // A commit is all or nothing.
+      if (writes.some((w) => w.currentDocument && w.currentDocument.exists !== this.docs.has(strip(w.update?.name ?? w.delete!)))) {
+        return reply({ error: { message: 'FAILED_PRECONDITION' } }, 400)
+      }
+      writes.forEach((w) => {
         const name = strip(w.update?.name ?? w.delete!)
-        const exists = this.docs.has(name)
-        if (w.currentDocument && w.currentDocument.exists !== exists) return { code: 9 }
         if (w.delete) {
           this.docs.delete(name)
-          return {}
+          return
         }
         const data = decodeFields(w.update!.fields)
         if (w.updateMask) {
@@ -313,9 +318,8 @@ export class FakeCloud {
         } else {
           this.docs.set(name, data)
         }
-        return {}
       })
-      return reply({ writeResults: writes.map(() => ({})), status })
+      return reply({ writeResults: writes.map(() => ({})) })
     }
     if (path === `${root}:batchGet`) {
       const { documents } = JSON.parse(body!) as { documents: string[] }

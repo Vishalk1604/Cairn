@@ -5,9 +5,12 @@ import { useState, type ReactNode } from 'react'
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 import { Switch } from '../components/Switch'
+import { requestNotificationPermission } from '../platform/notifications'
+import { registerPush } from '../platform/push'
 import { LOCAL_USER, useCairn } from '../state/context'
 import { useInbox } from '../state/inbox'
 import { useToast } from '../state/toast'
+import { worker } from '../state/worker'
 import { radius, space, useColors } from '../theme'
 import { fadeIn, Tap } from '../ui/motion'
 import { NVIDIA_PAGE } from './SettingsScreen'
@@ -48,7 +51,14 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
 
   const next = () => {
     setProblem(null)
-    if (step === 'watch') void inbox.setAutoTasks(autoTasks)
+    if (step === 'watch') {
+      void inbox.setAutoTasks(autoTasks)
+      // Alerts are what watching is for, so this is where Android asks. The
+      // phone hands the Worker its push token as soon as the answer is yes.
+      void requestNotificationPermission()
+        .then((state) => (state === 'granted' && signedIn ? registerPush(worker) : undefined))
+        .catch((error: unknown) => console.warn('Push is not set up in this build', error))
+    }
     const at = STEPS.indexOf(step as (typeof STEPS)[number])
     // Without an account there is nothing else to set up.
     if (step === 'signin' && !signedIn) return onDone()

@@ -161,6 +161,7 @@ export function CairnProvider({ platform, preview, children }: { platform: Deskt
   }, [syncing, auth.status, startSyncing])
 
   const signOut = useCallback(async () => {
+    worker.forgetTokens()
     store?.close?.()
     await signOutOfFirebase().catch(() => {})
     setEmail(null)

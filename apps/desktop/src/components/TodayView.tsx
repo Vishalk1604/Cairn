@@ -42,7 +42,7 @@ export function TodayView({ active, now, capture, onEdit, onSection }: Props) {
       {inbox.signedIn && <PausedNotice />}
 
       <Part
-        title={dueNow.length ? 'Due today' : 'Coming up'}
+        title={dueNow.length ? 'Due soon' : 'Coming up'}
         count={dueNow.length || undefined}
         more={next.length > due.length ? `All ${next.length} tasks` : 'All tasks'}
         onMore={() => onSection('tasks')}

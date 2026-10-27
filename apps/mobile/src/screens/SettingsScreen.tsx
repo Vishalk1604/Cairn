@@ -245,8 +245,12 @@ export function SettingsScreen({ onBack, onSetup }: { onBack: () => void; onSetu
             }
             detailTone={permission === 'granted' ? 'muted' : 'danger'}
             onPress={async () => {
-              if (permission === 'undetermined') setPermission(await requestNotificationPermission())
-              else void Linking.openSettings()
+              if (permission === 'granted') return void Linking.openSettings()
+              // Android reports "denied" before it has ever asked, so ask
+              // first; only once it will not ask again do system settings open.
+              const next = await requestNotificationPermission()
+              setPermission(next)
+              if (next !== 'granted') void Linking.openSettings()
             }}
           />
           <Row

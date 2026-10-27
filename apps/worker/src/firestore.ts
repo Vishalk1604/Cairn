@@ -77,6 +77,11 @@ export class FirestoreError extends Error {
   }
 }
 
+/** A write turned down for itself (a rule, a precondition), not for being unreachable. */
+function refused(error: unknown): boolean {
+  return error instanceof FirestoreError && [400, 403, 404, 409].includes(error.status)
+}
+
 export class Firestore {
   private readonly root: string
 
@@ -158,16 +163,40 @@ export class Firestore {
    */
   async write(writes: readonly Write[]): Promise<boolean[]> {
     const out: boolean[] = []
-    // batchWrite takes at most 500 at a time.
+    // batchWrite would apply them independently, but Firestore keeps it for
+    // admin credentials and refuses it with a person's ID token. So each
+    // chunk goes in as one commit (at most 500 writes), and only when that is
+    // refused are its writes tried one by one, to learn which can stand.
     for (let i = 0; i < writes.length; i += 400) {
       const chunk = writes.slice(i, i + 400)
-      const result = await this.call<{ status?: { code?: number; message?: string }[] }>(`${this.root}:batchWrite`, {
-        method: 'POST',
-        body: JSON.stringify({ writes: chunk.map((w) => this.wire(w)) }),
-      })
-      chunk.forEach((_, k) => out.push(!result.status?.[k]?.code))
+      try {
+        await this.commit(chunk)
+        chunk.forEach(() => out.push(true))
+      } catch (error) {
+        if (!refused(error)) throw error
+        if (chunk.length === 1) {
+          out.push(false)
+          continue
+        }
+        for (const one of chunk) {
+          try {
+            await this.commit([one])
+            out.push(true)
+          } catch (e) {
+            if (!refused(e)) throw e
+            out.push(false)
+          }
+        }
+      }
     }
     return out
+  }
+
+  private async commit(writes: readonly Write[]): Promise<void> {
+    await this.call(`${this.root}:commit`, {
+      method: 'POST',
+      body: JSON.stringify({ writes: writes.map((w) => this.wire(w)) }),
+    })
   }
 
   private wire(write: Write): unknown {
