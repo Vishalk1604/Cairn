@@ -30,12 +30,11 @@ export type PermissionState = 'granted' | 'denied' | 'undetermined'
 export async function setUpNotifications(): Promise<void> {
   if (!notificationsSupported) return
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      // The Worker's silent push for the widget arrives here too while Cairn is open; it has nothing to show.
+      const silent = !notification.request.content.title && !notification.request.content.body
+      return { shouldShowBanner: !silent, shouldShowList: !silent, shouldPlaySound: !silent, shouldSetBadge: false }
+    },
   })
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync(CHANNEL_ID, {

@@ -67,13 +67,26 @@ export interface LocalStore {
   notes: NoteRepository
 }
 
-export async function openLocal(): Promise<LocalStore> {
-  const { reminders, notes } = await openLocalRepositories(storage, {
-    onError: (error) => console.error('Saved data could not be read; it was backed up and Cairn started fresh.', error),
+let opened: Promise<LocalStore> | null = null
+
+/**
+ * The phone's own store, opened once per process. The home-screen widget
+ * runs in the same JavaScript as the app when the app is alive, and two
+ * copies of the store would each save over what the other wrote.
+ */
+export function openLocal(): Promise<LocalStore> {
+  opened ??= (async () => {
+    const { reminders, notes } = await openLocalRepositories(storage, {
+      onError: (error) => console.error('Saved data could not be read; it was backed up and Cairn started fresh.', error),
+    })
+    const now = Date.now()
+    await Promise.all([reminders.purgeTombstones(now), notes.purgeTombstones(now)])
+    return { reminders, notes }
+  })().catch((error: unknown) => {
+    opened = null
+    throw error
   })
-  const now = Date.now()
-  await Promise.all([reminders.purgeTombstones(now), notes.purgeTombstones(now)])
-  return { reminders, notes }
+  return opened
 }
 
 /** What a running sync needs to be told to stop. */
@@ -99,14 +112,24 @@ export async function startSync(local: LocalStore, uid: string): Promise<Sync> {
     replicate(local.reminders, synced.reminders, { includeDeleted: true }, uid),
   ]
   void purgeExpired(synced)
-  return {
+  const sync: Sync = {
     uid,
     ready: Promise.all([synced.notes.serverSynced(), synced.reminders.serverSynced()]).then(() => {}),
     stop() {
       for (const stop of stops) stop()
       synced.close()
+      if (running === sync) running = null
     },
   }
+  running = sync
+  return sync
+}
+
+let running: Sync | null = null
+
+/** The sync under way in this process, if any: the app's, or one the widget started to send a tick up. */
+export function runningSync(): Sync | null {
+  return running
 }
 
 /**

@@ -34,6 +34,7 @@ import { coursesIn, type CourseColorOverrides, type CourseEntry, type CourseSett
 import { formatAgo } from './format'
 import type { Platform } from './platform'
 import type { CourseColorKey } from './tokens'
+import { unseenCounts } from './widget'
 
 /**
  * The shared inbox, as each app shows it.
@@ -135,12 +136,16 @@ export interface InboxHost {
   announce?: boolean
 }
 
-const SEEN_KEY = 'cairn.inbox.seenAt'
-const SEEN_CLASSROOM_KEY = 'cairn.classroom.seenAt'
+/** Where the device keeps what it was last told, and when each tab was last opened; the widget reads them too. */
+export const INBOX_CACHE_KEYS = { records: 'cairn.inbox.cache', seenAt: 'cairn.inbox.seenAt', seenClassroomAt: 'cairn.classroom.seenAt' } as const
+const SEEN_KEY = INBOX_CACHE_KEYS.seenAt
+const SEEN_CLASSROOM_KEY = INBOX_CACHE_KEYS.seenClassroomAt
 const ANNOUNCED_KEY = 'cairn.inbox.announced'
-const CACHE_KEY = 'cairn.inbox.cache'
+const CACHE_KEY = INBOX_CACHE_KEYS.records
 /** Kept on the device as well, so the widgets colour courses without asking the cloud. */
 export const COURSE_COLORS_KEY = 'cairn.courses.colors'
+/** The person's word on senders, kept for the widget's count of important mail. */
+export const SENDERS_KEY = 'cairn.inbox.senders'
 const KEEP_ANNOUNCED = 300
 
 async function load<T>(platform: Platform, key: string, fallback: T): Promise<T> {
@@ -294,6 +299,7 @@ export class InboxEngine {
         'inbox',
         (value) => {
           this.settings = value ?? {}
+          save(this.platform, SENDERS_KEY, this.settings.senders ?? {})
           this.emit()
         },
         onError,
@@ -369,6 +375,7 @@ export class InboxEngine {
         .map(([email, s]) => `${email}: ${s.error}`),
     ]
     const now = this.now()
+    const unseen = unseenCounts({ records: live, seenAt: this.seenAt, seenClassroomAt: this.seenClassroomAt, senders })
     return {
       signedIn: !!this.watching,
       records,
@@ -384,8 +391,8 @@ export class InboxEngine {
       error: this.error ?? (problems.length ? problems.join('\n') : null),
       checkedAt,
       paused: !!this.watching && mailReaders.length + classroomReaders.length > 0 && checksPaused(checkedAt, now),
-      unseen: mail.filter((r) => r.foundAt > this.seenAt && !r.read && isImportant(r, senders)).length,
-      unseenClassroom: classroom.filter((r) => r.foundAt > this.seenClassroomAt && !r.read && !r.classroom?.submitted).length,
+      unseen: unseen.mail,
+      unseenClassroom: unseen.classroom,
       ai: { on: this.accounts?.ai?.on === true, ...(this.accounts?.ai?.preferred ? { preferred: this.accounts.ai.preferred } : {}), ...(this.reader?.ai ?? {}) },
       profile: this.settings.profile?.trim() || DEFAULT_PROFILE,
       senders,

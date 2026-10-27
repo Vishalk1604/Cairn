@@ -33,6 +33,7 @@ import { useNotifications } from './state/useNotifications'
 import { colors, space, useColors } from './theme'
 import { Reveal, type Rect } from './ui/Reveal'
 import { fadeIn, fadeOut, pageIn, pageOut } from './ui/motion'
+import { useWidgetLinks, useWidgetRefresh } from './widget/useWidgets'
 
 const ACTIVE: ReminderQuery = { status: ['pending', 'snoozed'] }
 
@@ -141,6 +142,22 @@ function Main() {
       }),
     [],
   )
+
+  useWidgetRefresh(active, inbox)
+
+  // A tap on the home-screen widget: a task, quick capture, or a tab.
+  useWidgetLinks((link) => {
+    setPage((current) => (current === 'setup' ? current : null))
+    setEditing(null)
+    if (link.kind === 'section') return setSection(link.section)
+    setSection('tasks')
+    if (link.kind === 'capture') return setTask({ text: '' })
+    const reminder = activeRef.current.find((r) => r.id === link.id)
+    if (reminder) setTask({ reminder })
+    else
+      // Not open any more (done elsewhere, or still on its way from the cloud): look it up in the store.
+      void reminders.get(link.id).then((found) => found && setTask({ reminder: found }))
+  })
 
   // Asked for when there is first something to alert about, not on first launch.
   useEffect(() => {
