@@ -6,7 +6,7 @@ Cairn is a notes and reminders app for Android and Windows. It keeps your next d
 
 A cairn is a stack of stones left on a trail to mark the way for whoever comes next. A reminder is the same thing: a marker you leave for your future self.
 
-> **Status:** early access. Version 0.2.0 is out for Android and Windows — see [Installing](#installing). Still young; see the [roadmap](#roadmap).
+> **Status:** early access. Version 0.3.0 is out for Android and Windows — see [Installing](#installing). Still young; see the [roadmap](#roadmap).
 
 ## Features
 
@@ -14,16 +14,17 @@ Planned for v1:
 
 - **Notes and reminders** with due dates, priority, tags, and recurrence. Snooze, complete, and everything works offline.
 - **Natural-language capture.** Type `submit DBMS assignment friday 6pm` and get a correctly dated reminder without touching a date picker.
-- **Android home-screen widget** showing today's items, color-coded by urgency, tap to complete.
-- **Windows desktop widget.** A frameless panel that lives on your desktop and opens on **Today**: what is due next, new Classroom posts, important mail and a line to write in. Plus a global quick-capture hotkey (`Ctrl+Shift+Space`).
+- **Android home-screen widget** showing what is late, due soon and due today, color-coded by urgency, with the class's colour for coursework. Tap a circle to complete, a row to open it, + for a new task.
+- **Windows desktop widget.** A frameless panel that lives on your desktop and opens on **Today**: what is due next, new Classroom posts, important mail and a line to write in. Plus a global quick-capture hotkey (`Ctrl+Shift+Space`). Switch on **Pin to desktop** and Today also sits on your wallpaper, behind your windows, through Show desktop.
+- **Share to Cairn.** Share a link, some text or photos from any Android app and it becomes a note, open for a word before you go back.
 - **Sync** between phone and desktop through your Google account.
 - **Set up once, on the phone.** A four-step setup — sign in, add your college account, choose what to watch, paste your AI key — and the computer then needs only to sign in with the same account.
 - **Gmail triage** (optional). Sorts incoming mail into important and not, tells you why, and learns from your corrections.
 - **One inbox on both devices.** Cairn's server, a small Cloudflare Worker, reads every connected account every ten minutes and writes a short summary of each new email to the cloud, so the phone and the computer show the same Inbox, filtered by account. **Sync now** asks it to look straight away.
-- **Google Classroom** (optional). New assignments and announcements from every connected account have their own Classroom tab; one tap makes a reminder with the right due date, and it ticks itself off when you submit. Switch on **Automatically add tasks** and they become reminders by themselves, once.
+- **Google Classroom** (optional). New assignments and announcements from every connected account have their own Classroom tab; one tap makes a reminder with the right due date, and it ticks itself off when you submit. Switch on **Automatically add tasks** and they become reminders by themselves, once. Each class has its own colour, which you can change. When a college keeps Classroom's API from apps, Cairn reads Classroom's notification emails instead.
 - **Notifications** for new coursework, announcements and important mail as they arrive, what is due tomorrow at 8 pm, what is due today in the morning, and a Today summary at 8 am — pushed to the phone, and shown on the computer while Cairn runs.
 - **Classroom files** (Windows, optional). Behind the gear in the Classroom tab, pick which of your classes to save, newest classes listed first. Notes, slides and worksheets their teachers attach are saved to a folder you choose, a folder per class, and each new one as it is posted. Google Docs and Slides arrive as PDF.
-- **Recycle bin.** Deleted notes wait in **Settings → Recycle bin** for 30 days, then are deleted for good everywhere, their photos and recordings included.
+- **Recycle bin.** Deleted notes wait in **Settings → Recycle bin** for 30 days, then are deleted for good everywhere, their photos and recordings included. **Delete forever** and **Empty bin** do it at once, on every device, including one that was offline.
 
 Not in v1: iOS, macOS, Linux, shared notes, attachments, two-way calendar sync, location-based reminders.
 
@@ -75,11 +76,12 @@ Sign-in on both apps runs through the server too, so it holds the one Google gra
 
 | Layer | Choice |
 |---|---|
-| Language | TypeScript, with a little Kotlin (Android widget) and Rust (desktop shell) |
+| Language | TypeScript, with a little Rust (desktop shell) |
 | Monorepo | pnpm workspaces + Turborepo |
-| Android | Expo (development build) + React Native, Jetpack Glance widget |
+| Android | Expo (development build) + React Native, home-screen widget with react-native-android-widget |
 | Windows | Tauri v2 + React + Vite |
-| Website | Next.js on Cloudflare Pages |
+| Website | Static pages on Firebase Hosting |
+| Releases | GitHub Actions to GitHub Releases; the desktop updates itself with tauri-plugin-updater |
 | Auth and sync | Firebase Auth (Google sign-in, PKCE) + Firestore, behind a repository interface |
 | Push | Firebase Cloud Messaging (HTTP v1), sent by the Worker |
 | Server jobs | A Cloudflare Worker with a cron trigger and D1, on the free plan |
@@ -90,7 +92,7 @@ Sign-in on both apps runs through the server too, so it holds the one Google gra
 
 ```
 apps/
-  mobile/     Expo + React Native (Android), Kotlin widget module
+  mobile/     Expo + React Native (Android), home-screen widget, config plugins
   desktop/    Tauri v2 + React; Rust for tray, hotkey, autostart
   site/       The public site: home, privacy and terms
   worker/     Cloudflare Worker: sign-in, reading Gmail and Classroom, AI sorting, push
@@ -108,19 +110,22 @@ packages/
 - [ ] **Phase 0: Foundations.** Monorepo scaffold, design tokens, Google Cloud and Firebase projects, privacy policy and terms.
 - [x] **Phase 1: Local core.** Reminder engine, natural-language capture, Android and Windows apps working offline with no sync.
 - [ ] **Phase 2: Identity and sync.** Google sign-in, Firestore sync with offline persistence, tested security rules.
-- [ ] **Phase 3: Widgets.** Android Glance widget and the desktop widget mode.
-- [ ] **Phase 4: Distribution.** CI builds, GitHub Releases, auto-update, and the download site.
+- [x] **Phase 3: Widgets.** Android home-screen widget, the desktop widget, and Today pinned to the Windows desktop.
+- [x] **Phase 4: Distribution.** CI builds, GitHub Releases, auto-update, and the download site. See [docs/release.md](docs/release.md).
 - [ ] **Phase 5: Gmail intelligence.** Rules engine, Gemini classification, Notifications tab, feedback loop.
 - [ ] **Phase 6: Classroom.** Extraction from Classroom notification emails first, then the Classroom API with auto-complete on submission.
 - [ ] **Phase 7: Beta and polish.** Real users, accessibility pass, onboarding.
 
 ## Installing
 
-Download both from the [Releases](https://github.com/Vishalk1604/Cairn/releases) page.
+Download both from the [site](https://cairn-vishalk.web.app) or the [latest release](https://github.com/Vishalk1604/Cairn/releases/latest); the file names never change, so these links always fetch the newest:
 
-**Android** (7.0 or newer): download `Cairn-<version>.apk` on your phone and open it. Android asks once to allow installs from your browser or file manager; allow it, then install. Updates install over the top, keeping your notes.
+- [Cairn-android.apk](https://github.com/Vishalk1604/Cairn/releases/latest/download/Cairn-android.apk)
+- [Cairn-windows-setup.exe](https://github.com/Vishalk1604/Cairn/releases/latest/download/Cairn-windows-setup.exe)
 
-**Windows** (10 or 11): run `Cairn-<version>-setup.exe`. It installs for your account only, without admin rights. The installer is not code-signed, so SmartScreen warns about an unknown publisher: choose **More info → Run anyway**.
+**Android** (7.0 or newer): open the APK on your phone. Android asks once to allow installs from your browser or file manager; allow it, then install. Updates install over the top, keeping your notes, and **Settings → About** says when there is one. Coming from 0.2.0, uninstall it once first: it was signed with a different key.
+
+**Windows** (10 or 11): run `Cairn-windows-setup.exe`. It installs for your account only, without admin rights. The installer is not code-signed, so SmartScreen warns about an unknown publisher: choose **More info → Run anyway**. Cairn then updates itself, offering **Update to x.y.z** in **Settings → About**.
 
 Cairn on Windows lives in the system tray, next to the clock:
 
@@ -130,7 +135,7 @@ Cairn on Windows lives in the system tray, next to the clock:
 
 **Signing in.** Set Cairn up on your phone first, then sign in on the computer with the same Google account: notes, tasks, the inbox and Classroom show on both. Google shows **"Google hasn't verified this app"** because Cairn is a small personal project that has not been through Google's paid review; choose **Advanced → Go to Cairn** to continue. For the same reason, Google limits Cairn to its first 100 users.
 
-**Checking a download.** Each release lists SHA-256 checksums in `SHA256SUMS.txt`. On Windows, `Get-FileHash .\Cairn-<version>-setup.exe` prints the one to compare.
+**Checking a download.** Each release lists SHA-256 checksums in `SHA256SUMS.txt`. On Windows, `Get-FileHash .\Cairn-windows-setup.exe` prints the one to compare.
 
 ## Development
 
