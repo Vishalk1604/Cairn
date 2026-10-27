@@ -1,9 +1,10 @@
 import type { Note, Reminder } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
 import { recoverNoteDraft } from '@cairn/ui'
+import { ShareIntentProvider } from 'expo-share-intent'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Dimensions, StyleSheet, Text, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import Animated from 'react-native-reanimated'
 import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
@@ -28,6 +29,7 @@ import { useNow, useObserved } from './state/hooks'
 import { InboxProvider, useInbox } from './state/inbox'
 import { MediaSync } from './state/media'
 import { PreferencesProvider, usePreferences } from './state/preferences'
+import { useShareToNote } from './state/share'
 import { ToastProvider } from './state/toast'
 import { useNotifications } from './state/useNotifications'
 import { colors, space, useColors } from './theme'
@@ -45,29 +47,32 @@ export function App() {
   }, [])
 
   return (
-    <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
-      {/* Measured natively before the first frame, so launching straight after boot never lays out with zero insets. */}
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <StatusBar style="light" />
-        {fatal ? (
-          <Text style={styles.fatal} accessibilityRole="alert">
-            Cairn couldn't open its data: {fatal}
-          </Text>
-        ) : (
-          <CairnProvider onFatal={setFatal}>
-            <PreferencesProvider>
-              <ToastProvider>
-                <MediaSync>
-                  <InboxProvider>
-                    <Main />
-                  </InboxProvider>
-                </MediaSync>
-              </ToastProvider>
-            </PreferencesProvider>
-          </CairnProvider>
-        )}
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    // First, as expo-share-intent asks, so a share that launched the app is not missed.
+    <ShareIntentProvider>
+      <GestureHandlerRootView style={[styles.root, { backgroundColor: colors.bg }]}>
+        {/* Measured natively before the first frame, so launching straight after boot never lays out with zero insets. */}
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <StatusBar style="light" />
+          {fatal ? (
+            <Text style={styles.fatal} accessibilityRole="alert">
+              Cairn couldn't open its data: {fatal}
+            </Text>
+          ) : (
+            <CairnProvider onFatal={setFatal}>
+              <PreferencesProvider>
+                <ToastProvider>
+                  <MediaSync>
+                    <InboxProvider>
+                      <Main />
+                    </InboxProvider>
+                  </MediaSync>
+                </ToastProvider>
+              </PreferencesProvider>
+            </CairnProvider>
+          )}
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ShareIntentProvider>
   )
 }
 
@@ -144,6 +149,15 @@ function Main() {
   )
 
   useWidgetRefresh(active, inbox)
+
+  // Shared from another app: a new note, opened in the editor, growing out of the middle of the screen.
+  useShareToNote((note) => {
+    const { width, height } = Dimensions.get('window')
+    setPage((current) => (current === 'setup' ? current : null))
+    setTask(null)
+    setSection('notes')
+    setEditing({ note, origin: { x: width / 2 - 40, y: height / 2 - 40, width: 80, height: 80, radius: 20, color: c.surface }, open: true })
+  })
 
   // A tap on the home-screen widget: a task, quick capture, or a tab.
   useWidgetLinks((link) => {

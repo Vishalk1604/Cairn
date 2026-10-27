@@ -25,6 +25,14 @@
       "expo-web-browser",
       "expo-secure-store",
       [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": ["text/*", "image/*"],
+          "androidMultiIntentFilters": ["image/*"],
+          "disableIOS": true
+        }
+      ],
+      [
         "react-native-android-widget",
         {
           "widgets": [

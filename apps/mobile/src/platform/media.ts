@@ -46,6 +46,28 @@ export async function pickImage(source: 'library' | 'camera' = 'library'): Promi
   return { ...attachment, bytes: target.size }
 }
 
+/**
+ * Keeps a copy of a photo another app shared with Cairn, the way a picked
+ * one is kept: the share's own file is only lent for as long as Android
+ * likes, so it is copied in with the other attachments at once.
+ */
+export async function keepSharedImage(shared: { path: string; mimeType: string; width: number | null; height: number | null }): Promise<Attachment | null> {
+  if (!shared.mimeType.startsWith('image/')) return null
+  const now = Date.now()
+  const attachment: Attachment = {
+    id: uuidv7(now),
+    kind: 'image',
+    mime: shared.mimeType,
+    ...(shared.width ? { width: shared.width } : {}),
+    ...(shared.height ? { height: shared.height } : {}),
+    createdAt: now,
+  }
+  const target = attachmentFile(attachment)
+  const source = shared.path.startsWith('file://') || shared.path.startsWith('content://') ? shared.path : `file://${shared.path}`
+  await new File(source).copy(target)
+  return { ...attachment, bytes: target.size }
+}
+
 /** Asks for the microphone, once, at the moment it is first wanted. */
 export async function prepareToRecord(): Promise<void> {
   const permission = await requestRecordingPermissionsAsync()
