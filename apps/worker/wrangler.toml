@@ -1,0 +1,32 @@
+# Cairn's Worker. See README.md for the one-time setup before `wrangler deploy`.
+name = "cairn-worker"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+# The cron fans out by calling this Worker's own address, so each person's
+# check is a request of its own with its own CPU allowance. Without this flag
+# a Worker's fetch to its own address would not reach it.
+compatibility_flags = ["global_fetch_strictly_public"]
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[vars]
+# This Worker's own address, as `wrangler deploy` prints it. Google sends the
+# browser back to PUBLIC_URL/auth/callback, so add exactly that as an
+# authorized redirect URI on the Web client in Google Cloud.
+PUBLIC_URL = "https://cairn-worker.REPLACE-WITH-YOUR-SUBDOMAIN.workers.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cairn"
+# From `wrangler d1 create cairn`.
+database_id = "REPLACE-WITH-YOUR-D1-DATABASE-ID"
+migrations_dir = "migrations"
+
+# Secrets, set once with `wrangler secret put NAME` and never committed:
+#   GOOGLE_CLIENT_ID      the Web client Firebase created in project cairn-vishalk
+#   GOOGLE_CLIENT_SECRET  that client's secret
+#   FIREBASE_API_KEY      the project's Web API key
+#   FIREBASE_PROJECT_ID   cairn-vishalk
+#   FCM_SERVICE_ACCOUNT   the whole JSON key of a service account allowed to send FCM
+#   ENC_KEY               32 random bytes in base64: openssl rand -base64 32

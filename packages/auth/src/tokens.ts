@@ -28,6 +28,11 @@ export interface TokenRefresh {
   clientId: string
   clientSecret?: string
   refreshToken: string
+  /**
+   * Fewer scopes than were granted, for a token that can do only what one
+   * job needs. Absent, the token carries everything granted.
+   */
+  scopes?: readonly string[]
 }
 
 /**
@@ -89,6 +94,7 @@ export async function refreshTokens(
       client_id: request.clientId,
       ...(request.clientSecret ? { client_secret: request.clientSecret } : {}),
       refresh_token: request.refreshToken,
+      ...(request.scopes?.length ? { scope: request.scopes.join(' ') } : {}),
     },
     deps,
   )

@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./ai": "./src/ai.ts",
     "./google": "./src/google.ts",
-    "./worker": "./src/worker.ts"
+    "./worker": "./src/worker.ts",
+    "./scopes": "./src/googleAuthConfig.ts"
   },
   "scripts": {
     "test": "vitest run",
