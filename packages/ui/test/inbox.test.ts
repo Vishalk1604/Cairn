@@ -1,6 +1,6 @@
 import { classroomTaskId, type InboxRecord } from '@cairn/core'
 import { MemoryKeyValueStore, openLocalRepositories, type AccountsDoc, type ReaderDoc, type SettingName } from '@cairn/sync'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHECKS_PAUSED_MS, InboxEngine, readerStatus, type AppNotification, type InboxBackend, type Platform } from '../src'
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
@@ -100,8 +100,14 @@ async function device(cloud: FakeCloud, clock: { now: number }, options: { annou
   })
   await engine.ready()
   engine.setContext({ userId: 'u', reminders })
+  disposers.push(() => engine.dispose())
   return { engine, reminders, notified }
 }
+
+const disposers: (() => void)[] = []
+afterEach(() => {
+  for (const dispose of disposers.splice(0)) dispose()
+})
 
 describe('InboxEngine', () => {
   it('shows what the Worker wrote, mail and Classroom apart, with the accounts it reads', async () => {
@@ -136,6 +142,28 @@ describe('InboxEngine', () => {
     cloud.setting('reader', { checkedAt: clock.now - CHECKS_PAUSED_MS - MIN } satisfies ReaderDoc)
     expect(engine.getState().paused).toBe(true)
     expect(readerStatus(engine.getState(), clock.now)).toBe('Mail checks paused — last checked 31 min ago')
+  })
+
+  it('notices checks stopping as time passes, with nothing else happening', async () => {
+    vi.useFakeTimers()
+    try {
+      const cloud = new FakeCloud()
+      cloud.setting('accounts', accounts)
+      const clock = { now: 100 * MIN }
+      cloud.setting('reader', { checkedAt: clock.now } satisfies ReaderDoc)
+      const { engine } = await device(cloud, clock)
+      let heard = 0
+      engine.subscribe(() => heard++)
+      clock.now += 20 * MIN
+      vi.advanceTimersByTime(MIN)
+      expect(heard).toBe(0)
+      clock.now += 15 * MIN
+      vi.advanceTimersByTime(MIN)
+      expect(heard).toBe(1)
+      expect(engine.getState().paused).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows the Worker’s problems with an account, and its last model', async () => {

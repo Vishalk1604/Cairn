@@ -229,6 +229,15 @@ describe('a person’s check', () => {
     expect(fetched('/profile')).toBe(1)
   })
 
+  it('does nothing at all for someone with nothing to read and no phone to tell', async () => {
+    await connect(ME, 'owner', fixture())
+    const row = (await store.account(UID, ME))!
+    await store.putAccount({ ...row, watchMail: false, watchClassroom: false })
+    await store.deletePush('push-token-0123456789abcdef')
+    expect(await check(T0)).toMatchObject({ found: 0, errors: [] })
+    expect(cloud.calls).toHaveLength(0)
+  })
+
   it('does not run twice at once', async () => {
     await connect(ME, 'owner', fixture())
     await store.claim(UID, T0 + 5 * MIN, T0)

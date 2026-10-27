@@ -153,8 +153,12 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** The console, typed structurally: this package takes no runtime's type library. */
-const runtime = globalThis as unknown as { console: { error(...data: unknown[]): void } }
+/** Timers and the console, typed structurally: this package takes no runtime's type library. */
+const runtime = globalThis as unknown as {
+  setInterval(run: () => void, ms: number): unknown
+  clearInterval(id: unknown): void
+  console: { error(...data: unknown[]): void }
+}
 
 export class InboxEngine {
   private readonly platform: Platform
@@ -176,6 +180,7 @@ export class InboxEngine {
   private announced: { since: number; ids: string[] } = { since: 0, ids: [] }
   private refreshing = false
   private error: string | null = null
+  private clock: unknown = null
   private state: InboxState
 
   constructor(host: InboxHost) {
@@ -227,6 +232,8 @@ export class InboxEngine {
   private watch(uid: string | null): void {
     for (const stop of this.stops) stop()
     this.stops = []
+    runtime.clearInterval(this.clock)
+    this.clock = null
     this.watching = uid
     this.reader = null
     this.accounts = null
@@ -238,6 +245,11 @@ export class InboxEngine {
     }
     const b = this.backend
     const onError = (error: unknown) => runtime.console.error('Inbox sync problem', error)
+    // Checks stopping is something that happens by nothing happening, so the clock is watched too.
+    this.clock = runtime.setInterval(() => {
+      const state = this.derive()
+      if (state.paused !== this.state.paused) this.emit()
+    }, MINUTE)
     this.stops.push(
       b.watchInbox(
         uid,

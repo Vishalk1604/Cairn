@@ -267,6 +267,8 @@ class Check {
   private ai: AiSetup | null = null
   private fs!: Firestore
   private accountsChanged = false
+  /** Whether any account is read at all. */
+  private watching = false
 
   constructor(
     private readonly ctx: Ctx,
@@ -291,6 +293,9 @@ class Check {
     const accounts = await store.accounts(this.uid)
     const owner = accounts.find((a) => a.role === 'owner')
     if (!owner) return { checkedAt: now, found: 0, errors: ['No account holds this person’s data'] }
+    // Nothing to read and no phone to tell: nothing to do, and nothing worth a write.
+    this.watching = accounts.some((a) => a.watchMail || a.watchClassroom)
+    if (!this.watching && (await store.pushTokens(this.uid)).length === 0) return { checkedAt: now, found: 0, errors: [] }
     this.ai = await aiSetupOf(this.ctx.env, this.user)
     try {
       this.fs = await firestoreFor(this.ctx, this.uid, owner)
@@ -757,7 +762,8 @@ class Check {
     }
     const hash = JSON.stringify([Object.entries(this.status).map(([email, s]) => [email, s.error ?? '']), this.state.ai ?? null])
     const last = this.state.reader
-    if (last && last.hash === hash && now - last.at < HEARTBEAT_MS) return
+    // The heartbeat is for the apps' "checks paused" notice, which only shows when something is read.
+    if (last && last.hash === hash && (now - last.at < HEARTBEAT_MS || !this.watching)) return
     const [ok] = await this.write([{ kind: 'set', path: `users/${this.uid}/settings/reader`, data: doc as unknown as Record<string, unknown> }])
     if (ok) this.state.reader = { at: now, hash }
   }

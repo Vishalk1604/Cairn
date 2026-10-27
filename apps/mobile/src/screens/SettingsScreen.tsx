@@ -133,6 +133,7 @@ export function SettingsScreen({ onBack, onSetup }: { onBack: () => void; onSetu
               <Text style={[styles.note, { color: c.faint }]}>
                 {cairn.email} holds your notes and tasks. Cairn's server checks the accounts below every ten minutes and only reads them: it never sends, changes or deletes anything.
               </Text>
+              {inbox.accounts.length === 0 && <Row title="Waiting for Cairn's server" detail="Your accounts show here once it has answered. If they never do, check the Worker is deployed (see the README)." />}
               {inbox.accounts.map((account) => (
                 <AccountCard
                   key={account.email}

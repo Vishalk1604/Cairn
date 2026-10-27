@@ -23,17 +23,23 @@
             your account can read them.
           </li>
           <li>Images and recordings are stored in <strong>your own Google Drive</strong>, not in Cairn's database.</li>
-          <li>Your email is read <strong>on your own device</strong> and is never sent to any server the developer runs.</li>
           <li>
-            So your phone and computer show the same inbox, a <strong>short summary of each new email and Classroom
-            post</strong> — never its full text — is kept in the same database, readable only by your account.
+            If you connect Gmail or Google Classroom, <strong>Cairn's server</strong> — a small program on Cloudflare
+            Workers — reads them for you <strong>every 10 minutes</strong>, so new coursework and important mail reach
+            your phone even while it is off. It keeps your Google permission and, if you add one, your NVIDIA AI key,
+            both <strong>encrypted</strong>. It does not keep your email.
+          </li>
+          <li>
+            What it found is saved as a <strong>short summary of each new email and Classroom post</strong> — never its
+            full text — in the same database as your notes, readable only by your account, so your phone and computer
+            show the same inbox.
           </li>
           <li>
             <strong>Only if you add your own NVIDIA API key</strong>, the text of new emails and Classroom posts is
-            sent to NVIDIA's AI service to be sorted. The key is kept in your account in the database, so your phone and
-            computer both use it. Without a key, nothing leaves your device for this.
+            sent to NVIDIA's AI service to be sorted.
           </li>
-          <li>The developer runs <strong>no server</strong> of their own. Nothing is sold, shared or analysed.</li>
+          <li>Notifications reach your phone through <strong>Firebase Cloud Messaging</strong>.</li>
+          <li>Nothing is sold, shared or analysed.</li>
         </ul>
       </section>
 
@@ -45,11 +51,11 @@
 
           <dt>Gmail (read-only)</dt>
           <dd>
-            To find deadlines — assignment due dates in Google Classroom notification emails, and dates mentioned by
-            teachers, and to pick out mail that matters. Message content is read on your device. Only the result is
-            saved, as described under <a href="#inbox">The shared inbox</a>. Message bodies are never stored and never
-            transmitted to the developer. They go to an AI service only as described under
-            <a href="#ai">Automatic sorting of email</a>.
+            To pick out mail that matters and the deadlines in it. Cairn's server reads new mail in your inbox as it
+            arrives and saves only the result, as described under <a href="#inbox">The shared inbox</a>. Message
+            bodies are never stored in the database and never kept by the server, except briefly, encrypted, while a
+            message waits to be sorted (see <a href="#server">Cairn's server</a>). They go to an AI service only as
+            described under <a href="#ai">Automatic sorting</a>. Spam and Trash are never read.
           </dd>
 
           <dt>Google Classroom (read-only)</dt>
@@ -63,7 +69,8 @@
           <dt>Google Drive (files created by Cairn only)</dt>
           <dd>
             To store images and audio you attach to a note. Cairn uses the <code>drive.file</code> scope, which means
-            it can only see files it created itself. It cannot read the rest of your Drive.
+            it can only see files it created itself. It cannot read the rest of your Drive. Your phone uploads and your
+            computer downloads these files directly; they do not pass through Cairn's server.
           </dd>
 
           <dt>Google Drive, read-only, and Classroom materials (only if you turn on Classroom files)</dt>
@@ -71,12 +78,35 @@
             In the Windows app you can choose to save the files your teachers attach in Google Classroom. Those files
             belong to your teachers, not to Cairn, so reading them needs read-only access to Drive files shared with
             you (<code>drive.readonly</code>), and <code>classroom.courseworkmaterials.readonly</code> to see posts that
-            are only a material. Cairn opens only the files attached to posts in the classes you pick, and saves
-            them to the folder you choose on your computer. They are not uploaded, synced or sent anywhere else, and Cairn never
-            changes or deletes anything in your Drive or in that folder. Turning the setting off stops it; you can
-            remove the access at any time as described below.
+            are only a material. Your computer downloads only the files attached to posts in the classes you pick,
+            straight from Google, and saves them to the folder you choose. They are not uploaded, synced or sent
+            anywhere else, and Cairn never changes or deletes anything in your Drive or in that folder.
           </dd>
         </dl>
+      </section>
+
+      <section id="server">
+        <h2>Cairn's server</h2>
+        <p>
+          Cairn's server is a program run by the developer on Cloudflare Workers, Cloudflare's hosting for small
+          programs. When you sign in or connect an account, Google gives the permission you granted to this server,
+          and it is the only place it is kept; your phone and computer hold only a sign-in to your Cairn account. With
+          it, the server checks every 10 minutes for new mail and Classroom posts in the accounts and services you
+          chose, writes what it found to your account in the database, and sends your phone a notification when
+          something needs you, plus a summary of what is due in the evening and in the morning. When your computer
+          needs a file from Drive, it asks the server for a short-lived permission for that alone.
+        </p>
+        <p>
+          The server keeps, in Cloudflare's database: your Google permissions, your NVIDIA key if you added one, your
+          phone's notification address and time zone, where it got to in each mailbox, and the text of any message
+          still waiting to be sorted (for at most three days). Everything sensitive is encrypted with a key only the
+          server holds. It keeps no copy of your notes, reminders or inbox, and no log of your mail.
+        </p>
+        <p>
+          It writes to the database as you, so the same rules apply to it as to your own devices: it can reach only
+          your account's data. As the person who runs it, the developer could technically change the program, and
+          does not look at anyone's data.
+        </p>
       </section>
 
       <section>
@@ -104,51 +134,53 @@
       <section id="inbox">
         <h2>The shared inbox</h2>
         <p>
-          Only one of your devices reads Gmail and Classroom at a time — your computer while Cairn is running there,
-          otherwise your phone — and it saves what it found in the database so the other shows the same inbox. For
-          each new email or Classroom post that is: the sender (or course) and subject, Gmail's own short preview of
-          at most 200 characters, which connected account it arrived in, when, Gmail's message and conversation ids,
-          and what was made of it — whether it is important, its folder, tags, a one-line summary, any deadline and
-          suggested task — plus whether you have opened, hidden or made a task of it. The full text and attachments
-          are never stored. The database keeps about the newest 250 of these; older ones are deleted.
+          For each new email or Classroom post, Cairn's server saves in the database: the sender (or course) and
+          subject, Gmail's own short preview of at most 200 characters, which connected account it arrived in, when,
+          Gmail's message and conversation ids, and what was made of it — whether it is important, its folder, tags,
+          a one-line summary, any deadline and suggested task — plus whether you have opened, hidden or made a task
+          of it. The full text and attachments are never stored. The database keeps about the newest 250 of these;
+          older ones are deleted.
         </p>
         <p>
-          The same applies to a few small settings: which Google accounts each device has connected and which
-          services each was allowed (Gmail, Classroom, Classroom files — never a password or Google token), which
-          device is currently reading and where it got to, your rules for senders, what you wrote under “What
-          matters to you”, and whether Classroom posts become tasks automatically. All of it is restricted, like
-          your notes, to your own account.
+          A few small settings are kept there too: which Google accounts are connected and which services each was
+          allowed (never a password, token or key), when the server last checked, your rules for senders, what you
+          wrote under “What matters to you”, your time zone, and whether Classroom posts become tasks automatically.
+          All of it is restricted, like your notes, to your own account.
         </p>
       </section>
 
       <section id="ai">
         <h2>Automatic sorting of email and Classroom</h2>
+        <p>Without an AI key, Cairn's server sorts mail with fixed rules, and no third party is involved.</p>
         <p>
-          Without an AI key, Cairn sorts mail on your device with fixed rules, and no third party is involved.
-        </p>
-        <p>
-          <strong>If, and only if, you add your own NVIDIA API key</strong> in Settings → Inbox &amp; AI, each new email,
-          and each new Classroom assignment and announcement, is sent to NVIDIA's AI service
+          <strong>If, and only if, you add your own NVIDIA API key</strong> on your phone, each new email, and each new
+          Classroom assignment and announcement, is sent by Cairn's server to NVIDIA's AI service
           (<code>integrate.api.nvidia.com</code>) to decide whether it is important, which folder and tags it
           belongs under, a one-line summary, and any deadline or time in it. What is sent is the sender (or the
           course name), the subject or title, when it arrived, any Classroom due date, up to the first 6,000
-          characters of the text, and what you wrote under “What matters to you” in Settings. Attachments are never
-          sent. While a key is set, Cairn also reads the Promotions and Social tabs so that nothing important is
-          missed there. Spam and Trash are never read.
+          characters of the text, and what you wrote under “What matters to you”. Attachments are never sent. While a
+          key is set, Cairn also reads the Promotions and Social tabs so that nothing important is missed there.
         </p>
         <p>
-          The request is made directly from whichever of your devices is reading your mail, with your key. It does
-          not pass through any server the developer runs. So that both devices can sort mail, the key you paste is
-          saved in your own account in Cairn's Firestore database, where security rules let only your signed-in
-          account read it, and in each device's secure storage. It is never shared with anyone else, and it is sent
-          only to NVIDIA. What NVIDIA does with a request is governed by NVIDIA's terms for the key you created, so
-          read them before adding one. Removing the key in Settings deletes it from the database and from your
-          devices and turns AI sorting off straight away.
+          The key you paste is kept, encrypted, on Cairn's server, and in your phone's secure storage. It is never
+          stored in the database, never shared with anyone else, and sent only to NVIDIA. What NVIDIA does with a
+          request is governed by NVIDIA's terms for the key you created, so read them before adding one. Removing the
+          key on your phone deletes it from the server and the phone and turns AI sorting off straight away.
         </p>
         <p>
           When you mark a sender as important or not important, that choice is saved as a rule in your account, so
-          both devices follow it. It takes priority over the AI, and it is never sent to NVIDIA or anyone else. Cairn does not use your data to train any AI
-          model, and does not ask anyone else to.
+          both devices and the server follow it. It takes priority over the AI, and it is never sent to NVIDIA or
+          anyone else. Cairn does not use your data to train any AI model, and does not ask anyone else to.
+        </p>
+      </section>
+
+      <section>
+        <h2>Notifications</h2>
+        <p>
+          To notify your phone when the app is closed, Cairn's server sends notifications through Firebase Cloud
+          Messaging, Google's notification service. A notification carries a title and a line of text — the course
+          and the title of new coursework, or the summary of an important email — and which item to open. Your
+          phone's notification address is kept on the server and forgotten when you sign out.
         </p>
       </section>
 
@@ -157,18 +189,20 @@
         <ul>
           <li>No analytics, telemetry or usage tracking.</li>
           <li>No advertising, and no sharing or selling of data to anyone.</li>
-          <li>No account on any service operated by the developer, because there isn't one.</li>
+          <li>No copy of your email, notes or reminders on Cairn's server.</li>
         </ul>
       </section>
 
       <section>
         <h2>Removing access</h2>
         <p>
-          You can disconnect any account from inside Cairn, which deletes the stored credentials for it. You can also
-          revoke Cairn's access at any time at
+          You can disconnect any additional account on your phone, which deletes Cairn's server's copy of its
+          permission and gives it back to Google. “Stop and forget everything” in your phone's settings stops every
+          check and deletes everything the server keeps for you. You can also revoke Cairn's access at any time at
           <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>, which works whether
-          or not the app is installed. Deleting the Firestore database removes stored notes, reminders, inbox
-          summaries, settings and your AI key; deleting the files from your Drive removes attachments.
+          or not the app is installed; the server then can no longer read anything. Deleting the Firestore database
+          removes stored notes, reminders, inbox summaries and settings; deleting the files from your Drive removes
+          attachments.
         </p>
       </section>
 
