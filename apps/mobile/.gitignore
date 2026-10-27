@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# Firebase's Android config: downloaded per project, kept out of the repository (see apps/worker/README.md)
+google-services.json
+
 # typescript
 *.tsbuildinfo
 

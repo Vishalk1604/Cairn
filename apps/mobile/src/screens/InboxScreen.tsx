@@ -1,10 +1,11 @@
 import { dueOf, inboxTaskId, isImportant, tagsOf, type InboxRecord, type SenderRule } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
-import { formatAgo, formatDue, readerStatus, SERVICE_NAMES } from '@cairn/ui'
+import { formatAgo, formatDue, readerStatus } from '@cairn/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated'
 import { AccountChips, FilterChip } from '../components/Chips'
+import { PausedNotice } from '../components/PausedNotice'
 import { SyncButton } from '../components/SyncButton'
 import { openMessage } from '../platform/mail'
 import { useCairn } from '../state/context'
@@ -29,16 +30,15 @@ function same(a: Filter, b: Filter): boolean {
 }
 
 /**
- * Gmail, sorted. With an AI key, every new email is read whole and filed:
- * Important collects what needs attention, folders such as Hackathons or
- * Jobs gather what belongs together, and the rest waits under Everything
- * else rather than vanishing. The same inbox shows on the computer: whichever
- * device reads the mail writes it for both.
+ * Gmail, sorted. Cairn's server reads new mail every ten minutes and, with
+ * an AI key, files it: Important collects what needs attention, folders such
+ * as Hackathons or Jobs gather what belongs together, and the rest waits
+ * under Everything else rather than vanishing. The computer shows the same.
  */
 export function InboxScreen({ onSettings }: { onSettings: () => void }) {
   const c = useColors()
   const toast = useToast()
-  const { auth, accounts, reminders } = useCairn()
+  const { auth, reminders } = useCairn()
   const inbox = useInbox()
   const tasks = useObserved(reminders, EVERY_TASK)
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
@@ -57,7 +57,6 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
   const folders = inbox.folders.filter((f) => visible.some((r) => r.triage?.folder === f))
   const current = filter.kind === 'folder' && !folders.includes(filter.name) ? ({ kind: 'important' } as Filter) : filter
   const shown = current.kind === 'important' ? important : current.kind === 'rest' ? rest : visible.filter((r) => r.triage?.folder === current.name)
-  const gaps = inbox.gaps.filter((g) => g.missing.includes('mail'))
 
   const mark = (record: InboxRecord, rule: SenderRule) => {
     void inbox.mark(record, rule)
@@ -84,7 +83,7 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
 
   const bar = (
     <View style={styles.bar}>
-      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onPress={() => void inbox.refresh(true)} label="Check mail now" caption="after" />}
+      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onPress={() => void inbox.refresh()} label="Check mail now" caption="after" />}
       <View style={styles.spacer} />
       <Tap onPress={onSettings} scaleTo={0.92} style={styles.icon} accessibilityLabel="Settings">
         <GearIcon color={c.fg} />
@@ -94,17 +93,17 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
 
   // Accounts with Gmail on, and any whose mail is already here.
   const reading = inbox.mailAccounts.accounts.length > 0
-  if (accounts.length === 0 || (!reading && gaps.length === 0)) {
+  if (!inbox.signedIn || !reading) {
     return (
       <View style={styles.screen}>
         {bar}
         <Text style={[styles.heading, { color: c.fg }]}>Inbox</Text>
-        {accounts.length === 0
-          ? empty('Your mail, sorted', 'Sign in with Google, then let Cairn read Gmail. Important mail is picked out, grouped into folders, and due dates become tasks.', {
+        {!inbox.signedIn
+          ? empty('Your mail, sorted', 'Sign in with Google and choose Gmail. Cairn checks it every ten minutes, picks out what is important, groups it into folders, and due dates become tasks.', {
               label: 'Set up in Settings',
               run: onSettings,
             })
-          : empty('Gmail isn’t on yet', 'Turn on Gmail for an account in Settings. Classroom posts have their own tab.', { label: 'Open Settings', run: onSettings })}
+          : empty('Gmail isn’t on yet', 'Choose Gmail for an account in Settings. Classroom posts have their own tab.', { label: 'Open Settings', run: onSettings })}
       </View>
     )
   }
@@ -132,14 +131,9 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
 
       <ScrollView
         contentContainerStyle={styles.body}
-        refreshControl={<RefreshControl refreshing={inbox.refreshing} onRefresh={() => void inbox.refresh(true)} tintColor={c.accent} colors={[c.accent]} progressBackgroundColor={c.surface} />}
+        refreshControl={<RefreshControl refreshing={inbox.refreshing} onRefresh={() => void inbox.refresh()} tintColor={c.accent} colors={[c.accent]} progressBackgroundColor={c.surface} />}
       >
-        {gaps.map((gap) => (
-          <Tap key={gap.sub} onPress={onSettings} scaleTo={0.98} style={[styles.notice, { backgroundColor: c.surface, borderColor: c.accent }]} accessibilityRole="button">
-            <Text style={{ color: c.fg, fontWeight: '600' }}>Connect {gap.email} to match your computer</Text>
-            <Text style={{ color: c.muted, marginTop: 2 }}>Your computer reads {gap.missing.map((s) => SERVICE_NAMES[s]).join(' and ')} for it. Set it up in Settings.</Text>
-          </Tap>
-        ))}
+        <PausedNotice />
         {inbox.error && (
           <Animated.View entering={appear} style={[styles.notice, { backgroundColor: c.danger + '22', borderColor: c.danger }]}>
             <Text style={{ color: c.danger }}>{inbox.error}</Text>
@@ -153,7 +147,7 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
         {!inbox.ai.on && (
           <Tap onPress={onSettings} scaleTo={0.98} style={[styles.notice, { backgroundColor: c.surface, borderColor: c.line }]} accessibilityRole="button">
             <Text style={{ color: c.fg, fontWeight: '600' }}>Sort mail into folders with AI</Text>
-            <Text style={{ color: c.muted, marginTop: 2 }}>Add an NVIDIA API key in Settings and Cairn reads each new email to pick out what matters.</Text>
+            <Text style={{ color: c.muted, marginTop: 2 }}>Add an NVIDIA API key in Settings and each new email is read to pick out what matters.</Text>
           </Tap>
         )}
         {auth.status === 'error' && <Text style={[styles.hint, { color: c.danger }]}>{auth.message}</Text>}
@@ -187,12 +181,12 @@ export function InboxScreen({ onSettings }: { onSettings: () => void }) {
         {!inbox.refreshing && shown.length === 0 && (
           <Text style={[styles.hint, { color: c.muted }]}>
             {current.kind === 'important'
-              ? 'Nothing important yet. Cairn reads new mail from the moment you switched it on, and lets you know when something turns up.'
+              ? 'Nothing important yet. Cairn checks new mail every ten minutes from the moment you chose Gmail, and lets you know when something turns up.'
               : 'Nothing here right now.'}
           </Text>
         )}
         <Text style={[styles.hint, { color: c.faint }]}>
-          {readerStatus(inbox, 'phone', now)}
+          {readerStatus(inbox, now)}
           {inbox.ai.model ? ` · sorted by ${inbox.ai.model}` : ''}
         </Text>
       </ScrollView>

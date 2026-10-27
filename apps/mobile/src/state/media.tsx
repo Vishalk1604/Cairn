@@ -1,6 +1,6 @@
 import { updateNote, type Attachment, type Note } from '@cairn/core'
 import { driveDownloadUrl, GoogleApiError, setDriveTrashed, startDriveUpload, type NoteQuery } from '@cairn/sync'
-import { accessTokenFor, owner, planDriveTrash } from '@cairn/ui'
+import { planDriveTrash } from '@cairn/ui'
 import { File, UploadTask, UploadType } from 'expo-file-system'
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { attachmentFile, hasLocalCopy } from '../platform/media'
@@ -35,16 +35,14 @@ export function useMediaVersion(): number {
  * sending the same photo again.
  */
 export function MediaSync({ children }: { children: ReactNode }) {
-  const { notes, accounts, platform, auth } = useCairn()
+  const { notes, email, worker, auth } = useCairn()
   const all = useObserved(notes, EVERYTHING)
   const [version, setVersion] = useState(0)
   const running = useRef(false)
   const again = useRef(false)
 
   useEffect(() => {
-    if (auth.status !== 'synced') return
-    const holder = owner(accounts)
-    if (!holder) return
+    if (auth.status !== 'synced' || !email) return
 
     const pass = async () => {
       if (running.current) {
@@ -55,7 +53,8 @@ export function MediaSync({ children }: { children: ReactNode }) {
       try {
         do {
           again.current = false
-          const { accessToken } = await accessTokenFor(platform, holder)
+          // A token for Cairn's own Drive files and nothing else, from the Worker.
+          const { accessToken } = await worker.token(email, 'drive')
           const uploaded = parseMap(await storage.get(UPLOADED_KEY))
           let landed = false
 
@@ -95,7 +94,7 @@ export function MediaSync({ children }: { children: ReactNode }) {
     // Edits come in bursts while typing; wait for a pause before looking.
     const timer = setTimeout(() => void pass(), 1500)
     return () => clearTimeout(timer)
-  }, [all, accounts, platform, auth.status, notes])
+  }, [all, email, worker, auth.status, notes])
 
   return <MediaVersion.Provider value={version}>{children}</MediaVersion.Provider>
 }

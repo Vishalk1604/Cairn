@@ -10,6 +10,10 @@ const CHANNEL_ID = 'reminders'
  * Disturb access" in system settings; until then it behaves like the first.
  */
 const URGENT_CHANNEL_ID = 'reminders-urgent'
+/** Push from Cairn's Worker: new coursework, announcements and important mail. Named to match apps/worker fcm.ts. */
+const INBOX_CHANNEL_ID = 'inbox'
+/** Push from Cairn's Worker: the evening, morning and eight o'clock digests. */
+const DIGEST_CHANNEL_ID = 'digest'
 
 let urgentAlerts = false
 
@@ -45,6 +49,16 @@ export async function setUpNotifications(): Promise<void> {
       bypassDnd: true,
       audioAttributes: { usage: Notifications.AndroidAudioUsage.ALARM, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
     })
+    await Notifications.setNotificationChannelAsync(INBOX_CHANNEL_ID, {
+      name: 'Classroom and mail',
+      description: 'New coursework, announcements and important email.',
+      importance: Notifications.AndroidImportance.HIGH,
+    })
+    await Notifications.setNotificationChannelAsync(DIGEST_CHANNEL_ID, {
+      name: 'Daily summaries',
+      description: 'What is due tomorrow, in the evening; what is due today, in the morning.',
+      importance: Notifications.AndroidImportance.DEFAULT,
+    })
   }
 }
 
@@ -66,17 +80,18 @@ export async function requestNotificationPermission(): Promise<PermissionState> 
  * writing it again, so two overlapping runs could cancel alarms the other had
  * just written and leave the device with nothing scheduled.
  */
-export function scheduleNotifications(reminders: readonly Reminder[], now: number): Promise<void> {
-  const run = () => reschedule(reminders, now)
+export function scheduleNotifications(reminders: readonly Reminder[], now: number, options: { digest?: boolean } = {}): Promise<void> {
+  const run = () => reschedule(reminders, now, options.digest ?? true)
   rescheduling = rescheduling.then(run, run)
   return rescheduling
 }
 
 let rescheduling: Promise<void> = Promise.resolve()
 
-async function reschedule(reminders: readonly Reminder[], now: number): Promise<void> {
+async function reschedule(reminders: readonly Reminder[], now: number, digest: boolean): Promise<void> {
   if (!notificationsSupported || (await notificationPermission()) !== 'granted') return
-  const plan = planNotifications(reminders, now)
+  // Signed in, the morning digest comes from Cairn's Worker by push instead.
+  const plan = planNotifications(reminders, now, { digest })
   const urgent = new Set(urgentAlerts ? reminders.filter((r) => r.priority === 'high').map((r) => r.id) : [])
   await Notifications.cancelAllScheduledNotificationsAsync()
   for (const n of plan) {
@@ -89,12 +104,35 @@ async function reschedule(reminders: readonly Reminder[], now: number): Promise<
   }
 }
 
-/** Calls back with the reminder id when the user taps one of its notifications. */
-export function onNotificationOpened(listener: (reminderId: string) => void): () => void {
+/** What a tapped notification is about: a task, or something the Worker found. */
+export interface Opened {
+  reminderId?: string
+  /** From the Worker's push: 'classroom', 'inbox', 'task' or 'today'. */
+  kind?: string
+  id?: string
+}
+
+function opened(response: Notifications.NotificationResponse): Opened {
+  const content = response.notification.request.content.data ?? {}
+  // A push shown by Android itself while Cairn was closed keeps its data on the remote message.
+  const remote = (response.notification.request.trigger as { remoteMessage?: { data?: Record<string, unknown> } } | null)?.remoteMessage?.data ?? {}
+  const data = { ...remote, ...content } as Record<string, unknown>
+  const text = (key: string) => (typeof data[key] === 'string' && data[key] ? (data[key] as string) : undefined)
+  const kind = text('kind')
+  const id = text('id')
+  return { reminderId: text('reminderId') ?? (kind === 'task' ? id : undefined), ...(kind ? { kind } : {}), ...(id ? { id } : {}) }
+}
+
+/** Calls back when the user taps a notification: a task's, or a push from the Worker, including the one that opened the app. */
+export function onNotificationOpened(listener: (what: Opened) => void): () => void {
   if (!notificationsSupported) return () => {}
-  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-    const reminderId = response.notification.request.content.data?.reminderId
-    if (typeof reminderId === 'string') listener(reminderId)
-  })
+  let handled: string | null = null
+  const handle = (response: Notifications.NotificationResponse) => {
+    if (response.notification.request.identifier === handled) return
+    handled = response.notification.request.identifier
+    listener(opened(response))
+  }
+  void Notifications.getLastNotificationResponseAsync().then((response) => response && handle(response))
+  const subscription = Notifications.addNotificationResponseReceivedListener(handle)
   return () => subscription.remove()
 }

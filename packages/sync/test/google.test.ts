@@ -1,20 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  announcementMessage,
-  classroomFiles,
-  classroomFeed,
-  courseWorkMessage,
-  decodeBase64Url,
-  gmailLink,
-  GoogleApiError,
-  mailCursor,
-  MailCursorExpired,
-  mailSince,
-  resetDriveFolder,
-  setDriveTrashed,
-  startDriveUpload,
-  type Fetch,
-} from '../src'
+import { classroomFiles, courseWorkMessage, driveFileInfo, gmailLink, GoogleApiError, htmlToText, resetDriveFolder, setDriveTrashed, startDriveUpload, type Fetch } from '../src'
 
 type Route = (url: string, init?: Parameters<Fetch>[1]) => { status?: number; body?: unknown; headers?: Record<string, string> }
 
@@ -36,168 +21,29 @@ function fakeFetch(routes: [string, Route][]) {
   return { fetchFn, calls }
 }
 
-/** Vitest runs on Node, whose Buffer the package's own types deliberately do not know about. */
-declare const Buffer: { from(text: string, encoding: 'utf8'): { toString(encoding: 'base64url'): string } }
+describe('mail helpers', () => {
+  it('reads an HTML email as text', () => {
+    expect(htmlToText('<style>p{}</style><p>Register&nbsp;by <b>Friday</b></p><ul><li>Teams of four</li></ul>')).toBe('Register by Friday\n\n• Teams of four')
+  })
 
-const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64url')
-
-describe('decodeBase64Url', () => {
-  it('decodes UTF-8 text, accents and emoji included', () => {
-    expect(decodeBase64Url(b64('Due Friday — café ✓ 🎓'))).toBe('Due Friday — café ✓ 🎓')
+  it('links to the conversation in Gmail, in the right account', () => {
+    expect(gmailLink({ id: 'm1', threadId: 't1', account: 'me@college.edu' })).toBe('https://mail.google.com/mail/u/me%40college.edu/#all/t1')
   })
 })
 
-describe('incremental mail', () => {
-  const message = {
-    id: 'a',
-    snippet: 'snip',
-    internalDate: '1700000000000',
-    payload: {
-      headers: [
-        { name: 'From', value: 'no-reply@classroom.google.com' },
-        { name: 'Subject', value: 'New assignment: "Lab 4"' },
-      ],
-      mimeType: 'multipart/alternative',
-      parts: [{ mimeType: 'text/plain', body: { data: b64('Due Oct 22') } }],
-    },
-  }
-
-  it('starts from where the mailbox is now, reading nothing already there', async () => {
-    const { fetchFn, calls } = fakeFetch([['/profile', () => ({ body: { historyId: '900' } })]])
-    expect(await mailCursor('token', fetchFn)).toBe('900')
-    expect(calls).toHaveLength(1)
-  })
-
-  it('fetches only what arrived since the cursor, and moves the cursor on', async () => {
-    const { fetchFn, calls } = fakeFetch([
-      ['/history?', () => ({ body: { historyId: '950', history: [{ messagesAdded: [{ message: { id: 'a', labelIds: ['INBOX'] } }] }] } })],
-      ['/messages/a', () => ({ body: message })],
-    ])
-    const { messages, cursor } = await mailSince('token', 'me@uni.edu', '900', fetchFn)
-    expect(cursor).toBe('950')
-    expect(messages[0]).toMatchObject({ id: 'a', account: 'me@uni.edu', subject: 'New assignment: "Lab 4"', text: 'Due Oct 22' })
-    expect(calls[0]).toContain('startHistoryId=900')
-  })
-
-  it('costs one request when nothing is new', async () => {
-    const { fetchFn, calls } = fakeFetch([['/history?', () => ({ body: { historyId: '900' } })]])
-    expect((await mailSince('token', 'me', '900', fetchFn)).messages).toEqual([])
-    expect(calls).toHaveLength(1)
-  })
-
-  it('skips promotions and social mail unless every tab is asked for, and never reads spam', async () => {
-    const history = [
-      { messagesAdded: [{ message: { id: 'p', labelIds: ['INBOX', 'CATEGORY_PROMOTIONS'] } }] },
-      { messagesAdded: [{ message: { id: 's', labelIds: ['INBOX', 'SPAM'] } }] },
-    ]
-    const routes: [string, Route][] = [
-      ['/history?', () => ({ body: { historyId: '901', history } })],
-      ['/messages/p', () => ({ body: { ...message, id: 'p' } })],
-    ]
-    const plain = fakeFetch(routes)
-    await mailSince('token', 'me', '900', plain.fetchFn)
-    expect(plain.calls.some((c) => c.includes('/messages/'))).toBe(false)
-
-    const every = fakeFetch(routes)
-    const { messages } = await mailSince('token', 'me', '900', every.fetchFn, { everyTab: true })
-    expect(messages.map((m) => m.id)).toEqual(['p'])
-  })
-
-  it('reads an HTML-only email as text, and prefers the HTML when the plain part is a stub', async () => {
-    const html = '<html><head><style>p{color:red}</style></head><body><p>Hi&nbsp;Vishal,</p><ul><li>Apply by <b>1 Dec</b></li></ul><p>Thanks &amp; regards</p></body></html>'
-    const stub = { ...message, payload: { ...message.payload, parts: [{ mimeType: 'text/plain', body: { data: b64('View in browser') } }, { mimeType: 'text/html', body: { data: b64(html) } }] } }
+describe('Google refusals', () => {
+  it('say plainly when an API is switched off for the project', async () => {
     const { fetchFn } = fakeFetch([
-      ['/history?', () => ({ body: { historyId: '950', history: [{ messagesAdded: [{ message: { id: 'a', labelIds: ['INBOX'] } }] }] } })],
-      ['/messages/a', () => ({ body: stub })],
+      ['/files/', () => ({ status: 403, body: { error: { status: 'PERMISSION_DENIED', message: 'disabled', details: [{ reason: 'SERVICE_DISABLED' }] } } })],
     ])
-    const { messages } = await mailSince('token', 'me', '900', fetchFn)
-    expect(messages[0]?.text).toBe(['Hi Vishal,', '• Apply by 1 Dec', 'Thanks & regards'].join('\n\n'))
-  })
-
-  it('skips a message deleted before it could be fetched, and keeps the rest', async () => {
-    const { fetchFn } = fakeFetch([
-      [
-        '/history?',
-        () => ({ body: { historyId: '960', history: [{ messagesAdded: [{ message: { id: 'gone', labelIds: ['INBOX'] } }, { message: { id: 'a', labelIds: ['INBOX'] } }] }] } }),
-      ],
-      ['/messages/gone', () => ({ status: 404, body: { error: { code: 404, message: 'Requested entity was not found.' } } })],
-      ['/messages/a', () => ({ body: { ...message, threadId: 't1' } })],
-    ])
-    const { messages, cursor } = await mailSince('token', 'me@uni.edu', '900', fetchFn)
-    expect(cursor).toBe('960')
-    expect(messages.map((m) => [m.id, m.threadId])).toEqual([['a', 't1']])
-    expect(gmailLink(messages[0]!)).toBe('https://mail.google.com/mail/u/me%40uni.edu/#all/t1')
-  })
-
-  it('says when the cursor is too old to continue from', async () => {
-    const { fetchFn } = fakeFetch([['/history?', () => ({ status: 404, body: { error: { message: 'Requested entity was not found.' } } })]])
-    await expect(mailSince('token', 'me', '1', fetchFn)).rejects.toBeInstanceOf(MailCursorExpired)
-  })
-
-  it('says plainly when the Gmail API is switched off for the project', async () => {
-    const { fetchFn } = fakeFetch([
-      ['/profile', () => ({ status: 403, body: { error: { status: 'PERMISSION_DENIED', message: 'disabled', details: [{ reason: 'SERVICE_DISABLED' }] } } })],
-    ])
-    const error = await mailCursor('token', fetchFn).catch((e: unknown) => e)
+    const error = await driveFileInfo('token', 'f1', fetchFn).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(GoogleApiError)
     expect((error as GoogleApiError).apiDisabled).toBe(true)
-    expect((error as Error).message).toMatch(/Gmail API is turned off/)
-  })
-
-  it('turns a quota refusal into a message about slowing down', async () => {
-    const { fetchFn } = fakeFetch([
-      ['/history?', () => ({ status: 429, body: { error: { status: 'RESOURCE_EXHAUSTED', message: "Quota exceeded for quota metric 'Total Query Cost'" } } })],
-    ])
-    const error = (await mailSince('token', 'me', '900', fetchFn).catch((e: unknown) => e)) as GoogleApiError
-    expect(error.rateLimited).toBe(true)
-    expect(error.message).toMatch(/slow down/)
+    expect((error as Error).message).toMatch(/Drive API is turned off/)
   })
 })
 
-describe('classroomFeed', () => {
-  it('pairs each assignment with whether it has been handed in', async () => {
-    const { fetchFn, calls } = fakeFetch([
-      ['/studentSubmissions', () => ({ body: { studentSubmissions: [{ courseWorkId: 'w1', state: 'TURNED_IN' }, { courseWorkId: 'w2', state: 'CREATED' }] } })],
-      ['/courseWork?', () => ({ body: { courseWork: [{ id: 'w1', courseId: 'c1', title: 'Essay' }, { id: 'w2', courseId: 'c1', title: 'Quiz' }] } })],
-      ['/courses?', () => ({ body: { courses: [{ id: 'c1', name: 'History' }] } })],
-    ])
-    const feed = await classroomFeed('token', {}, fetchFn)
-    expect(feed.work.map((i) => [i.work.title, i.submitted])).toEqual([
-      ['Essay', true],
-      ['Quiz', false],
-    ])
-    // Announcements are only asked for when they were granted.
-    expect(calls.some((c) => c.includes('/announcements'))).toBe(false)
-  })
-
-  it('reads announcements, and skips a course Classroom will not open', async () => {
-    const { fetchFn } = fakeFetch([
-      ['/courses/bad/', () => ({ status: 404, body: { error: { code: 404, message: 'Requested entity was not found.' } } })],
-      ['/studentSubmissions', () => ({ body: {} })],
-      ['/courseWork?', () => ({ body: {} })],
-      ['/announcements?', () => ({ body: { announcements: [{ id: 'a1', courseId: 'c1', text: 'Hackathon on Friday\nRegister by Thursday', creationTime: '2026-10-22T10:00:00Z' }] } })],
-      ['/courses?', () => ({ body: { courses: [{ id: 'c1', name: 'History' }, { id: 'bad', name: 'Archived' }] } })],
-    ])
-    const feed = await classroomFeed('token', { announcements: true }, fetchFn)
-    expect(feed.skipped).toEqual(['Archived'])
-    expect(feed.announcements).toHaveLength(1)
-    const message = announcementMessage(feed.announcements[0]!.course, feed.announcements[0]!.announcement, 'me')
-    expect(message).toMatchObject({ id: 'classroom-announcement-a1', from: 'History', subject: 'Hackathon on Friday', classroom: { kind: 'announcement', courseId: 'c1' } })
-  })
-
-  it('carries on without announcements when they were not granted after all', async () => {
-    const { fetchFn } = fakeFetch([
-      ['/announcements?', () => ({ status: 403, body: { error: { code: 403, status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } } })],
-      ['/studentSubmissions', () => ({ body: {} })],
-      ['/courseWork?', () => ({ body: { courseWork: [{ id: 'w1', courseId: 'c1', title: 'Essay' }] } })],
-      ['/courses?', () => ({ body: { courses: [{ id: 'c1', name: 'History' }] } })],
-    ])
-    const feed = await classroomFeed('token', { announcements: true }, fetchFn)
-    expect(feed.work).toHaveLength(1)
-    expect(feed.announcements).toEqual([])
-    expect(feed.skipped).toEqual([])
-  })
-
+describe('Classroom posts', () => {
   it('turns coursework into an inbox message with its exact due date', () => {
     const message = courseWorkMessage(
       {

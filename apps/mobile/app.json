@@ -27,6 +27,7 @@
     ],
     "android": {
       "package": "io.github.vishalk1604.cairn",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 2,
       "permissions": [
         "android.permission.USE_EXACT_ALARM",

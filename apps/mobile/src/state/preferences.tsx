@@ -15,16 +15,8 @@ export interface Preferences {
   pinnedFolders: string[]
   /** Reminders marked high priority sound even in silent or Do Not Disturb. */
   urgentAlerts: boolean
-  /**
-   * Accounts whose Gmail or Classroom reading is switched off, by Google
-   * account id. Switching off is a choice made here, not a revocation: Google
-   * keeps the permission, so switching back on needs no second consent.
-   */
-  paused: Record<Feature, string[]>
   updatedAt: number
 }
-
-export type Feature = 'mail' | 'classroom'
 
 const DEFAULTS: Preferences = {
   fontSize: 'medium',
@@ -32,7 +24,6 @@ const DEFAULTS: Preferences = {
   layout: 'grid',
   pinnedFolders: [],
   urgentAlerts: false,
-  paused: { mail: [], classroom: [] },
   updatedAt: 0,
 }
 
@@ -47,7 +38,6 @@ interface PreferencesApi {
   preferences: Preferences
   update(change: Partial<Omit<Preferences, 'updatedAt'>>): void
   togglePinned(folder: string): void
-  setPaused(feature: Feature, account: string, paused: boolean): void
 }
 
 const Context = createContext<PreferencesApi | null>(null)
@@ -118,16 +108,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     [commit],
   )
 
-  const setPaused = useCallback(
-    (feature: Feature, account: string, paused: boolean) =>
-      commit((current) => {
-        const list = (current.paused ?? DEFAULTS.paused)[feature].filter((sub) => sub !== account)
-        return { paused: { ...DEFAULTS.paused, ...current.paused, [feature]: paused ? [...list, account] : list } }
-      }),
-    [commit],
-  )
-
-  const value = useMemo(() => ({ preferences, update, togglePinned, setPaused }), [preferences, update, togglePinned, setPaused])
+  const value = useMemo(() => ({ preferences, update, togglePinned }), [preferences, update, togglePinned])
   return <Context.Provider value={value}>{children}</Context.Provider>
 }
 

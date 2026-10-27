@@ -1,6 +1,6 @@
 import { AiError, checkAiKey, modelsFor, readAiSetup, type AiSetup, type NoteQuery } from '@cairn/sync'
 import { DEFAULT_PROFILE, PROFILE_LIMIT } from '@cairn/core'
-import { featuresOf, owner, readerStatus, readsAnnouncements, recycleBin, SERVICE_NAMES, sources, type Account } from '@cairn/ui'
+import { readerStatus, reading, recycleBin, type WorkerAccount } from '@cairn/ui'
 import Constants from 'expo-constants'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ActivityIndicator, BackHandler, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -8,10 +8,10 @@ import Animated, { useAnimatedKeyboard, useAnimatedStyle } from 'react-native-re
 import { Switch } from '../components/Switch'
 import { SyncButton } from '../components/SyncButton'
 import { notificationPermission, requestNotificationPermission, type PermissionState } from '../platform/notifications'
-import { useCairn } from '../state/context'
+import { LOCAL_USER, useCairn } from '../state/context'
 import { useObserved } from '../state/hooks'
-import { readingOn, useInbox } from '../state/inbox'
-import { usePreferences, type Feature, type FontSize, type Layout, type SortOrder } from '../state/preferences'
+import { useInbox } from '../state/inbox'
+import { usePreferences, type FontSize, type Layout, type SortOrder } from '../state/preferences'
 import { useToast } from '../state/toast'
 import { radius, space, useColors } from '../theme'
 import { Glyph } from '../ui/icons'
@@ -20,7 +20,7 @@ import { RecycleBinScreen } from './RecycleBinScreen'
 
 const SITE = 'https://cairn-vishalk.web.app'
 /** Where the key comes from. Any model page there gives the same kind of key. */
-const NVIDIA_PAGE = 'https://build.nvidia.com/openai/gpt-oss-20b'
+export const NVIDIA_PAGE = 'https://build.nvidia.com/openai/gpt-oss-20b'
 
 const FONT_LABEL: Record<FontSize, string> = { small: 'Small', medium: 'Medium', large: 'Large' }
 const SORT_LABEL: Record<SortOrder, string> = { modified: 'By modification date', created: 'By creation date' }
@@ -30,11 +30,16 @@ const WITH_DELETED: NoteQuery = { includeDeleted: true }
 
 type Choice = { title: string; options: { label: string; on: boolean; pick: () => void }[] }
 
-export function SettingsScreen({ onBack }: { onBack: () => void }) {
+/**
+ * Settings, and the one place Cairn is set up: the accounts Cairn's server
+ * reads, what it reads from each, and the AI key. The computer shows these
+ * and changes none of them.
+ */
+export function SettingsScreen({ onBack, onSetup }: { onBack: () => void; onSetup: () => void }) {
   const c = useColors()
   const toast = useToast()
   const cairn = useCairn()
-  const { preferences, update, setPaused } = usePreferences()
+  const { preferences, update } = usePreferences()
   const inbox = useInbox()
   const [choice, setChoice] = useState<Choice | null>(null)
   const [permission, setPermission] = useState<PermissionState | null>(null)
@@ -43,6 +48,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const [bin, setBin] = useState(false)
   const [profileSheet, setProfileSheet] = useState(false)
   const binned = recycleBin(useObserved(cairn.notes, WITH_DELETED), Date.now()).length
+  const signedIn = cairn.userId !== LOCAL_USER
 
   useEffect(() => {
     void notificationPermission().then(setPermission)
@@ -73,45 +79,18 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   }
 
   /**
-   * Switching off is a choice made here and takes effect at once; Google is
-   * not involved, and keeps the permission so switching back on is instant.
-   * Switching on only goes to Google when the permission is missing, and
-   * reading then starts from that moment rather than the backlog.
+   * Switching off only tells Cairn's server to stop; Google keeps the
+   * permission, so switching back on is instant. Switching on asks Google
+   * first when the permission is missing, and reading starts from that moment.
    */
-  const toggle = (account: Account, feature: Feature) => {
-    const sub = account.identity.sub
-    if (readingOn(account, feature, preferences.paused)) {
-      setPaused(feature, sub, true)
-      return
-    }
-    void run(`${sub}:${feature}`, async () => {
-      if (!featuresOf(account)[feature]) {
-        const now = (await cairn.regrant(account, { ...featuresOf(account), [feature]: true })).find((a) => a.identity.sub === sub)
-        if (!now || !featuresOf(now)[feature]) {
-          throw new Error(`Google didn't give Cairn ${feature === 'mail' ? 'Gmail' : 'Classroom'} access. Tick every box on the permission screen to switch it on.`)
-        }
-      }
-      await inbox.startFresh(sub, feature)
-      setPaused(feature, sub, false)
+  const toggle = (account: WorkerAccount, what: 'mail' | 'classroom') => {
+    void run(`${account.email}:${what}`, async () => {
+      if (reading(account, what)) return cairn.watch(account.email, { [what]: false })
+      const missing = !account.services.includes(what) || (what === 'classroom' && !account.services.includes('announcements'))
+      if (missing) await cairn.grant(account.email, [what])
+      await cairn.watch(account.email, { [what]: true })
     })
   }
-
-  /** Classroom switched on before Cairn read announcements: Google has to be asked once more. */
-  const allowAnnouncements = (account: Account) => {
-    const sub = account.identity.sub
-    void run(`${sub}:announcements`, async () => {
-      const now = (await cairn.regrant(account, { ...featuresOf(account), classroom: true })).find((a) => a.identity.sub === sub)
-      if (!now || !readsAnnouncements(now)) {
-        throw new Error("Google didn't give Cairn the announcements. Tick every box on the permission screen to read them.")
-      }
-    })
-  }
-
-  const main = owner(cairn.accounts)
-  const linked = sources(cairn.accounts)
-  const auth = cairn.auth
-  // Classroom files are saved by the computer alone; a phone has no use for them.
-  const gaps = inbox.gaps
 
   const pick = <T extends string>(title: string, labels: Record<T, string>, current: T, set: (v: T) => void) =>
     setChoice({
@@ -119,12 +98,24 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
       options: (Object.keys(labels) as T[]).map((value) => ({ label: labels[value], on: value === current, pick: () => set(value) })),
     })
 
-  const syncAll = () => {
-    void cairn.sync.run()
-    void inbox.refresh(true)
-  }
+  const forget = () =>
+    toast({
+      message: 'Stop Cairn’s server reading your accounts, and delete everything it keeps for you?',
+      action: {
+        label: 'Delete',
+        run: () =>
+          void run('forget', async () => {
+            await cairn.forgetServer()
+            await cairn.signOut()
+            toast({ message: 'Cairn’s server has forgotten you. Your notes are still on this phone.' })
+          }),
+      },
+    })
 
   if (bin) return <RecycleBinScreen onBack={() => setBin(false)} />
+
+  const auth = cairn.auth
+  const now = Date.now()
 
   return (
     <View style={[styles.screen, { backgroundColor: c.bg }]}>
@@ -137,84 +128,72 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         <Text style={[styles.heading, { color: c.fg }]}>Settings</Text>
 
         <Section title="Accounts & access">
-          {main ? (
+          {signedIn ? (
             <>
               <Text style={[styles.note, { color: c.faint }]}>
-                {main.identity.email} holds your notes and tasks. Other accounts, such as a university one, are only read: Cairn never sends, changes or keeps anything in them.
+                {cairn.email} holds your notes and tasks. Cairn's server checks the accounts below every ten minutes and only reads them: it never sends, changes or deletes anything.
               </Text>
-              {[main, ...linked].map((account) => (
+              {inbox.accounts.map((account) => (
                 <AccountCard
-                  key={account.identity.sub}
+                  key={account.email}
                   account={account}
-                  status={
-                    account.role === 'owner'
-                      ? auth.status === 'synced'
-                        ? 'Syncing notes and tasks'
-                        : auth.status === 'connecting'
-                          ? 'Connecting…'
-                          : auth.status === 'error'
-                            ? auth.message
-                            : 'Signed in'
-                      : 'Read only'
-                  }
-                  danger={account.role === 'owner' && auth.status === 'error'}
-                  syncing={account.role === 'owner' ? cairn.sync.busy || inbox.refreshing : inbox.refreshing}
-                  syncedAt={account.role === 'owner' ? cairn.sync.at : inbox.checkedAt}
-                  onSync={account.role === 'owner' ? syncAll : () => void inbox.refresh(true)}
                   busy={busy}
-                  paused={preferences.paused}
-                  onToggle={(f) => toggle(account, f)}
-                  onAnnouncements={() => allowAnnouncements(account)}
-                  onDisconnect={account.role === 'source' ? () => void run(`x${account.identity.sub}`, () => cairn.disconnectSource(account.identity.sub)) : undefined}
-                />
-              ))}
-              {gaps.map((gap) => (
-                <Row
-                  key={`gap-${gap.sub}`}
-                  title={`Connect ${gap.email} to match your computer`}
-                  detail={`Your computer reads ${gap.missing.map((s) => SERVICE_NAMES[s]).join(' and ')} for it. Google asks this phone separately.`}
-                  trailing={busy === `gap:${gap.sub}` ? <ActivityIndicator color={c.accent} /> : <Glyph char="+" color={c.accent} size={24} />}
-                  onPress={() => void run(`gap:${gap.sub}`, () => cairn.matchAccount(gap))}
+                  onToggle={(what) => toggle(account, what)}
+                  onReconnect={() =>
+                    void run(`${account.email}:again`, () => cairn.grant(account.email, account.services.filter((s): s is 'drive' | 'mail' | 'classroom' | 'files' => s !== 'announcements')))
+                  }
+                  onDisconnect={account.role === 'source' ? () => void run(`x${account.email}`, () => cairn.disconnect(account.email)) : undefined}
                 />
               ))}
               <Row
-                title="Link another account"
-                detail="A university or work account to read Gmail and Classroom from"
-                trailing={busy === 'link' ? <ActivityIndicator color={c.accent} /> : <Glyph char="+" color={c.accent} size={24} />}
-                onPress={() => void run('link', () => cairn.connectSource({ mail: true, classroom: true }))}
+                title="Add another account"
+                detail="A college or work account, to read its Gmail and Classroom"
+                trailing={busy === 'add' ? <ActivityIndicator color={c.accent} /> : <Glyph char="+" color={c.accent} size={24} />}
+                onPress={() => void run('add', cairn.addAccount)}
               />
-              <Row title="Sign out" detail="Notes stay on this phone; they just stop syncing" danger onPress={() => void run('signout', cairn.signOut)} />
+              <Row
+                title="Mail checks"
+                detail={readerStatus(inbox, now)}
+                detailTone={inbox.paused ? 'danger' : 'muted'}
+                trailing={<SyncButton busy={inbox.refreshing || cairn.sync.busy} at={inbox.checkedAt} onPress={() => {
+                  void cairn.sync.run()
+                  void inbox.refresh()
+                }} label="Check now" caption="none" />}
+              />
+              <Row title="Sign out" detail="Notes stay on this phone; they just stop syncing. Cairn's server keeps checking your mail." danger onPress={() => void run('signout', cairn.signOut)} />
+              <Row title="Stop and forget everything" detail="Cairn's server stops reading your accounts and deletes what it keeps for you" danger onPress={forget} />
             </>
           ) : (
-            <Row
-              title="Sign in with Google"
-              detail={auth.status === 'error' ? auth.message : 'Back up your notes and keep them in step with the Cairn desktop app'}
-              detailTone={auth.status === 'error' ? 'danger' : 'muted'}
-              trailing={auth.status === 'connecting' || busy === 'signin' ? <ActivityIndicator color={c.accent} /> : <Glyph char="›" color={c.muted} size={26} />}
-              onPress={() => void run('signin', cairn.signIn)}
-            />
+            <>
+              <Row
+                title="Sign in with Google"
+                detail={auth.status === 'error' ? auth.message : 'Back up your notes, keep them in step with the Cairn desktop app, and have Cairn read your mail and Classroom'}
+                detailTone={auth.status === 'error' ? 'danger' : 'muted'}
+                trailing={auth.status === 'connecting' || busy === 'signin' ? <ActivityIndicator color={c.accent} /> : <Glyph char="›" color={c.muted} size={26} />}
+                onPress={() => void run('signin', cairn.signIn)}
+              />
+              <Row title="Set Cairn up step by step" detail="Sign in, add your college account, choose what to read, and AI sorting" trailing={<Glyph char="›" color={c.muted} size={26} />} onPress={onSetup} />
+            </>
           )}
         </Section>
 
-        {/* Shown signed out too, so the place to paste a key is easy to find. */}
         <Section title="Inbox & AI">
-          {main && <Row title="Who reads your mail" detail={`${readerStatus(inbox, 'phone', Date.now())}. Your computer reads whenever it is on; this phone takes over when it is not.`} />}
           <Row
             title="What matters to you"
             detail={inbox.profile.length > 140 ? `${inbox.profile.slice(0, 137)}…` : inbox.profile}
             trailing={<Glyph char="›" color={c.muted} size={26} />}
             onPress={() => setProfileSheet(true)}
           />
-          {inbox.ai.on ? (
+          {cairn.ai.setup ? (
             <>
               <Row
                 title="AI sorting is on"
-                detail={inbox.ai.error ?? (inbox.ai.model ? `Last sorted by ${inbox.ai.model}` : `Uses ${inbox.ai.preferred ?? 'GPT-OSS'} from the next mail that arrives`)}
+                detail={inbox.ai.error ?? (inbox.ai.model ? `Last sorted by ${inbox.ai.model}` : `Uses ${inbox.ai.preferred ?? modelsFor(cairn.ai.setup)[0]?.label ?? 'GPT-OSS'} from the next mail that arrives`)}
                 detailTone={inbox.ai.error ? 'danger' : 'muted'}
                 trailing={<Glyph char="✓" color={c.accent} size={20} />}
               />
               <Row title="Change key" onPress={() => setKeySheet(true)} trailing={<Glyph char="›" color={c.muted} size={26} />} />
-              <Row title="Remove key" detail="From this phone and your computer. Mail goes back to being checked for deadlines only." danger onPress={() => void run('aikey', () => inbox.setAiSetup(null))} />
+              <Row title="Remove key" detail="From this phone and Cairn's server. Mail goes back to being checked for deadlines only." danger onPress={() => void run('aikey', () => cairn.ai.save(null))} />
             </>
           ) : (
             <Row
@@ -225,16 +204,16 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
             />
           )}
           <Text style={[styles.note, { color: c.faint, paddingTop: space.sm }]}>
-            With a key, the device reading your mail sends the text of each new email and Classroom post to NVIDIA's AI service, which picks out what matters, files it into folders, tags it and reads off any deadline. The key is kept in your Cairn account, so your computer uses it too.
-            {main ? '' : ' It starts working once you sign in and turn on mail reading.'}
+            With a key, Cairn's server sends the text of each new email and Classroom post to NVIDIA's AI service, which picks out what matters, files it into folders, tags it and reads off any deadline. The key is kept in this phone's secure storage and, sealed, on Cairn's server — never in your synced data.
+            {signedIn ? '' : ' It starts working once you sign in and choose Gmail.'}
           </Text>
         </Section>
 
-        {main && (
+        {signedIn && (
           <Section title="Classroom">
             <Row
               title="Automatically add tasks"
-              detail="New coursework becomes a task at its due date and ticks itself off when you hand it in. Announcements become tasks at any date they give. On your computer too."
+              detail="New coursework becomes a task at its due date and ticks itself off when you hand it in. Announcements become tasks at any date they give. Shared with your computer."
               trailing={<Switch on={inbox.autoTasks} />}
               onPress={() => void inbox.setAutoTasks(!inbox.autoTasks)}
             />
@@ -256,7 +235,13 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         <Section title="Reminders">
           <Row
             title="Notifications"
-            detail={permission === 'granted' ? 'Allowed' : permission === 'denied' ? 'Off — tap to open system settings' : 'Not asked yet — tap to allow'}
+            detail={
+              permission === 'granted'
+                ? 'Allowed. Reminders, and new coursework and important mail from Cairn’s server'
+                : permission === 'denied'
+                  ? 'Off — tap to open system settings'
+                  : 'Not asked yet — tap to allow'
+            }
             detailTone={permission === 'granted' ? 'muted' : 'danger'}
             onPress={async () => {
               if (permission === 'undetermined') setPermission(await requestNotificationPermission())
@@ -287,7 +272,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           onClose={() => setKeySheet(false)}
           onSave={async (setup) => {
             const model = await checkAiKey(setup)
-            await inbox.setAiSetup(setup)
+            await cairn.ai.save(setup)
             setKeySheet(false)
             const preferred = modelsFor(setup)[0]?.label ?? model
             toast({ message: model === preferred ? `Key works. Mail will be sorted by ${model}.` : `Key works. ${preferred} is busy, so ${model} will sort mail for now.` })
@@ -301,7 +286,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           onSave={(text) => {
             void inbox.setProfile(text)
             setProfileSheet(false)
-            toast({ message: 'Saved. New mail is read with it from now on, here and on your computer.' })
+            toast({ message: 'Saved. New mail is read with it from now on.' })
           }}
           onClose={() => setProfileSheet(false)}
         />
@@ -341,7 +326,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
  * against NVIDIA before it is kept, so a bad paste shows here rather than as
  * a silent inbox.
  */
-function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<void>; onClose: () => void }) {
+export function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<void>; onClose: () => void }) {
   const c = useColors()
   const [pasted, setPasted] = useState('')
   const [checking, setChecking] = useState(false)
@@ -405,7 +390,7 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
         />
         {read?.ok && !problem && (
           <Text style={{ color: c.muted, marginTop: space.sm }}>
-            Found a key{read.setup.model ? ` for ${modelsFor(read.setup)[0]?.label}` : ''}. Kept in this phone's secure storage and your Cairn account, and sent only to NVIDIA.
+            Found a key{read.setup.model ? ` for ${modelsFor(read.setup)[0]?.label}` : ''}. Kept in this phone's secure storage and, sealed, on Cairn's server, and sent only to NVIDIA.
           </Text>
         )}
         {(problem ?? (read && !read.ok ? read.error : null)) && (
@@ -427,7 +412,7 @@ function KeySheet({ onSave, onClose }: { onSave: (setup: AiSetup) => Promise<voi
  * every message it reads, so "SIH and anything from the placement cell" is
  * enough to move those into Important.
  */
-function ProfileSheet({ profile, onSave, onClose }: { profile: string; onSave: (text: string) => void; onClose: () => void }) {
+export function ProfileSheet({ profile, onSave, onClose }: { profile: string; onSave: (text: string) => void; onClose: () => void }) {
   const c = useColors()
   const [text, setText] = useState(profile)
   const keyboard = useAnimatedKeyboard()
@@ -470,40 +455,27 @@ function ProfileSheet({ profile, onSave, onClose }: { profile: string; onSave: (
   )
 }
 
-/** One account: what it is, a sync button, and what Cairn reads from it. */
+/** One account: what it is, what Cairn's server reads from it, and whether it can. */
 function AccountCard({
   account,
-  status,
-  danger,
-  syncing,
-  syncedAt,
-  onSync,
   busy,
-  paused,
   onToggle,
-  onAnnouncements,
+  onReconnect,
   onDisconnect,
 }: {
-  account: Account
-  status: string
-  danger?: boolean
-  syncing: boolean
-  syncedAt: number | null
-  onSync: () => void
+  account: WorkerAccount
   busy: string | null
-  paused: Record<Feature, string[]>
-  onToggle: (feature: Feature) => void
-  onAnnouncements: () => void
+  onToggle: (what: 'mail' | 'classroom') => void
+  onReconnect: () => void
   onDisconnect?: () => void
 }) {
   const c = useColors()
-  const sub = account.identity.sub
-  const row = (feature: Feature, title: string, detail: string) => (
+  const row = (what: 'mail' | 'classroom', title: string, detail: string) => (
     <Row
       title={title}
       detail={detail}
-      trailing={busy === `${sub}:${feature}` ? <ActivityIndicator color={c.accent} /> : <Switch on={readingOn(account, feature, paused)} />}
-      onPress={() => onToggle(feature)}
+      trailing={busy === `${account.email}:${what}` ? <ActivityIndicator color={c.accent} /> : <Switch on={reading(account, what)} />}
+      onPress={() => onToggle(what)}
     />
   )
   return (
@@ -511,26 +483,22 @@ function AccountCard({
       <View style={styles.cardHead}>
         <View style={styles.rowText}>
           <Text style={[styles.accountName, { color: c.fg }]} numberOfLines={1}>
-            {account.identity.email}
+            {account.email}
           </Text>
-          <Text style={[styles.rowDetail, { color: danger ? c.danger : c.muted }]}>
-            {account.role === 'owner' ? 'Holds your notes · ' : ''}
-            {status}
-          </Text>
+          <Text style={[styles.rowDetail, { color: account.problem ? c.danger : c.muted }]}>{account.problem ?? (account.role === 'owner' ? 'Holds your notes' : 'Read only')}</Text>
         </View>
-        <SyncButton busy={syncing} at={syncedAt} onPress={onSync} label={`Sync ${account.identity.email}`} caption="none" />
       </View>
-      {row('mail', 'Read Gmail', 'New mail from now on — important mail and deadlines picked out')}
-      {row('classroom', 'Read Google Classroom', 'New coursework and announcements, in the Classroom tab')}
-      {readingOn(account, 'classroom', paused) && !readsAnnouncements(account) && (
+      {account.problem && (
         <Row
-          title="Read announcements too"
-          detail="Classroom was switched on before Cairn read announcements. Google will ask you once more."
-          trailing={busy === `${sub}:announcements` ? <ActivityIndicator color={c.accent} /> : <Glyph char="›" color={c.muted} size={26} />}
-          onPress={onAnnouncements}
+          title="Connect again"
+          detail="Google will ask once more"
+          trailing={busy === `${account.email}:again` ? <ActivityIndicator color={c.accent} /> : <Glyph char="›" color={c.muted} size={26} />}
+          onPress={onReconnect}
         />
       )}
-      {onDisconnect && <Row title="Disconnect" detail="Stops reading this account on this phone" danger onPress={onDisconnect} />}
+      {row('mail', 'Read Gmail', 'New mail from now on — important mail and deadlines picked out')}
+      {row('classroom', 'Read Google Classroom', 'New coursework and announcements, in the Classroom tab')}
+      {onDisconnect && <Row title="Disconnect" detail="Cairn's server stops reading it and gives the permission back to Google" danger onPress={onDisconnect} />}
     </View>
   )
 }

@@ -6,6 +6,7 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native'
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated'
 import { AccountChips, FilterChip } from '../components/Chips'
 import { Switch } from '../components/Switch'
+import { PausedNotice } from '../components/PausedNotice'
 import { SyncButton } from '../components/SyncButton'
 import { openMessage } from '../platform/mail'
 import { useCairn } from '../state/context'
@@ -30,7 +31,7 @@ type Tab = 'work' | 'announcement'
 export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
   const c = useColors()
   const toast = useToast()
-  const { accounts, reminders } = useCairn()
+  const { reminders } = useCairn()
   const inbox = useInbox()
   const tasks = useObserved(reminders, EVERY_TASK)
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
@@ -46,11 +47,10 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
   const work = visible.filter((r) => r.classroom?.kind === 'work')
   const announcements = visible.filter((r) => r.classroom?.kind === 'announcement')
   const shown = tab === 'work' ? work : announcements
-  const gaps = inbox.gaps.filter((g) => g.missing.some((s) => s === 'classroom' || s === 'announcements'))
 
   const bar = (
     <View style={styles.bar}>
-      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onPress={() => void inbox.refresh(true)} label="Check Classroom now" caption="after" />}
+      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onPress={() => void inbox.refresh()} label="Check Classroom now" caption="after" />}
       <View style={styles.spacer} />
       <Tap onPress={onSettings} scaleTo={0.92} style={styles.icon} accessibilityLabel="Settings">
         <GearIcon color={c.fg} />
@@ -58,7 +58,7 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
     </View>
   )
 
-  if (accounts.length === 0 || (inbox.classroomReadable.length === 0 && inbox.classroom.length === 0 && gaps.length === 0)) {
+  if (!inbox.signedIn || (inbox.classroomReaders.length === 0 && inbox.classroom.length === 0)) {
     return (
       <View style={styles.screen}>
         {bar}
@@ -67,11 +67,11 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
           <View style={[styles.emptyIcon, { backgroundColor: c.surface }]}>
             <ClassIcon color={c.faint} size={40} />
           </View>
-          <Text style={[styles.emptyTitle, { color: c.fg }]}>{accounts.length === 0 ? 'Your classes, in one place' : 'Classroom isn’t on yet'}</Text>
+          <Text style={[styles.emptyTitle, { color: c.fg }]}>{!inbox.signedIn ? 'Your classes, in one place' : 'Classroom isn’t on yet'}</Text>
           <Text style={[styles.emptyDetail, { color: c.muted }]}>
-            {accounts.length === 0
-              ? 'Sign in with Google, then let Cairn read Google Classroom. New coursework and announcements from every account show here.'
-              : 'Turn on Google Classroom for an account in Settings, such as your university’s.'}
+            {!inbox.signedIn
+              ? 'Sign in with Google, then add your college account and choose Classroom. New coursework and announcements from every account show here.'
+              : 'Choose Classroom for an account in Settings, such as your college’s.'}
           </Text>
           <Tap onPress={onSettings} scaleTo={0.94} haptic="light" style={[styles.cta, { backgroundColor: c.accent }]}>
             <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 16 }}>Open Settings</Text>
@@ -93,7 +93,7 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
 
       <ScrollView
         contentContainerStyle={styles.body}
-        refreshControl={<RefreshControl refreshing={inbox.refreshing} onRefresh={() => void inbox.refresh(true)} tintColor={c.accent} colors={[c.accent]} progressBackgroundColor={c.surface} />}
+        refreshControl={<RefreshControl refreshing={inbox.refreshing} onRefresh={() => void inbox.refresh()} tintColor={c.accent} colors={[c.accent]} progressBackgroundColor={c.surface} />}
       >
         <Tap
           onPress={() => {
@@ -109,16 +109,11 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
         >
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.fg, fontWeight: '600', fontSize: 16 }}>Automatically add tasks</Text>
-            <Text style={{ color: c.muted, marginTop: 2 }}>Coursework at its due date, announcements at any date they give. On your computer too.</Text>
+            <Text style={{ color: c.muted, marginTop: 2 }}>Coursework at its due date, announcements at any date they give. Shared with your computer.</Text>
           </View>
           <Switch on={inbox.autoTasks} />
         </Tap>
-        {gaps.map((gap) => (
-          <Tap key={gap.sub} onPress={onSettings} scaleTo={0.98} style={[styles.notice, { backgroundColor: c.surface, borderColor: c.accent }]} accessibilityRole="button">
-            <Text style={{ color: c.fg, fontWeight: '600' }}>Connect {gap.email} to match your computer</Text>
-            <Text style={{ color: c.muted, marginTop: 2 }}>Your computer reads Classroom for it. Set it up in Settings.</Text>
-          </Tap>
-        ))}
+        <PausedNotice />
         {inbox.error && (
           <Animated.View entering={appear} style={[styles.notice, { backgroundColor: c.danger + '22', borderColor: c.danger }]}>
             <Text style={{ color: c.danger }}>{inbox.error}</Text>
@@ -151,7 +146,7 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
             {tab === 'work' ? 'No new coursework. It shows here as soon as a teacher posts it.' : 'No new announcements.'}
           </Text>
         )}
-        <Text style={[styles.hint, { color: c.faint }]}>{readerStatus(inbox, 'phone', now)}</Text>
+        <Text style={[styles.hint, { color: c.faint }]}>{readerStatus(inbox, now)}</Text>
       </ScrollView>
     </View>
   )

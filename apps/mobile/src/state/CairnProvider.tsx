@@ -1,8 +1,8 @@
-import { TokenError } from '@cairn/auth'
-import { signOutOfFirebase } from '@cairn/sync'
-import { connect, disconnect, forgetAllAccounts, loadAccounts, owner, type Account, type AccountGap, type SourceFeatures } from '@cairn/ui'
+import { currentUser, signInToFirebase, signOutOfFirebase, storedAiSetup, type AiSetup, type Want, type WorkerAccount } from '@cairn/sync'
+import { consentThroughWorker, LEGACY_ACCOUNTS_KEY } from '@cairn/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { mobilePlatform } from '../platform/mobile'
+import { forgetPushToken } from '../platform/push'
 import {
   CairnContext,
   describeError,
@@ -14,43 +14,45 @@ import {
   type LocalStore,
   type Sync,
 } from './context'
+import { worker } from './worker'
 
 const platform = mobilePlatform
+/** Where the NVIDIA key lives in this phone's secure storage. */
+const AI_SECRET = 'ai.nvidia'
 
+/**
+ * Who the phone is signed in as, and everything set up on it.
+ *
+ * The phone is where Cairn is set up: signing in, adding a college account,
+ * choosing what is read and the AI key all start here. Google's grants go to
+ * Cairn's Worker, which reads mail for the phone and the computer alike; the
+ * phone keeps only its Firebase session, and the AI key in its own secure
+ * storage as well as the Worker's.
+ */
 export function CairnProvider({ children, onFatal }: { children: ReactNode; onFatal: (message: string) => void }) {
   const [local, setLocal] = useState<LocalStore | null>(null)
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const [email, setEmail] = useState<string | null>(null)
   const [userId, setUserId] = useState(LOCAL_USER)
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState<number | null>(null)
+  const [aiSetup, setAiSetup] = useState<AiSetup | null>(null)
   const sync = useRef<Sync | null>(null)
 
-  const begin = useCallback(async (store: LocalStore, all: Account[]) => {
-    const holder = owner(all)
-    if (!holder) {
-      setAuth({ status: 'local' })
-      return
-    }
+  /** Starts copying notes and tasks for the signed-in person. */
+  const begin = useCallback(async (store: LocalStore, uid: string, address: string | null) => {
     setAuth({ status: 'connecting' })
     try {
       sync.current?.stop()
-      const started = await startSync(store, all, platform)
+      const started = await startSync(store, uid)
       sync.current = started
-      setUserId(started.uid)
-      setAuth({ status: 'synced', email: holder.identity.email })
+      setUserId(uid)
+      setEmail(address)
+      setAuth({ status: 'synced', email: address ?? '' })
       void started.ready.then(() => {
         if (sync.current === started) setSyncedAt(Date.now())
       })
     } catch (error) {
-      // A dead refresh token is the one case where the stored account is
-      // worthless; anything else (no network, mostly) is worth retrying.
-      if (error instanceof TokenError && error.needsReconsent) {
-        await forgetAllAccounts(platform)
-        setAccounts([])
-        setAuth({ status: 'error', message: 'Google signed Cairn out. Sign in again to resume syncing.' })
-        return
-      }
       setAuth({ status: 'error', message: describeError(error) })
     }
   }, [])
@@ -64,10 +66,13 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
         const store = await openLocal()
         if (cancelled) return
         setLocal(store)
-        const saved = await loadAccounts(platform.secrets)
+        setAiSetup(storedAiSetup(await platform.secrets.get(AI_SECRET).catch(() => null)))
+        // Older versions kept Google refresh tokens here; the Worker holds them now.
+        await platform.secrets.delete(LEGACY_ACCOUNTS_KEY).catch(() => {})
+        const user = await currentUser()
         if (cancelled) return
-        setAccounts(saved)
-        await begin(store, saved)
+        if (user) await begin(store, user.uid, user.email)
+        else setAuth({ status: 'local' })
       } catch (error) {
         onFatal(describeError(error))
       }
@@ -82,43 +87,57 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
     if (!local) return
     setAuth({ status: 'connecting' })
     try {
-      const all = await connect(platform, { role: 'owner' })
-      setAccounts(all)
-      await begin(local, all)
+      const result = await consentThroughWorker(platform, worker, { want: ['drive'] })
+      if (!result.idToken) throw new Error('The sign-in did not say who you are. Try again.')
+      const uid = await signInToFirebase(result.idToken)
+      await begin(local, uid, result.email)
+      // A key saved before signing in goes to the Worker now.
+      if (aiSetup) await worker.setupAi(aiSetup).catch(() => {})
     } catch (error) {
       setAuth({ status: 'error', message: describeError(error) })
     }
-  }, [local, begin])
+  }, [local, begin, aiSetup])
 
   const signOut = useCallback(async () => {
+    await forgetPushToken(worker).catch(() => {})
     sync.current?.stop()
     sync.current = null
-    await forgetAllAccounts(platform)
     await signOutOfFirebase().catch(() => {})
-    setAccounts([])
     setUserId(LOCAL_USER)
+    setEmail(null)
     // Notes stay on the phone: signing out stops sharing, it does not delete.
     setAuth({ status: 'local' })
   }, [])
 
-  const connectSource = useCallback(async (features: SourceFeatures) => {
-    setAccounts(await connect(platform, { role: 'source', features }))
+  const addAccount = useCallback(async () => {
+    await consentThroughWorker(platform, worker, { want: ['mail', 'classroom'], link: true, add: true })
   }, [])
 
-  const regrant = useCallback(async (account: Account, features: SourceFeatures) => {
-    const all = await connect(platform, { role: account.role, features, expect: account.identity })
-    setAccounts(all)
-    return all
+  const grant = useCallback(async (address: string, want: readonly Want[]) => {
+    await consentThroughWorker(platform, worker, { want, hint: address, link: true })
   }, [])
 
-  const disconnectSource = useCallback(async (sub: string) => {
-    setAccounts(await disconnect(platform, sub))
+  const watch = useCallback(async (address: string, what: Partial<WorkerAccount['watch']>) => {
+    await worker.watch(address, what)
   }, [])
 
-  const matchAccount = useCallback(async (gap: AccountGap) => {
-    const expect = gap.account?.identity ?? { sub: gap.sub, email: gap.email, emailVerified: true }
-    setAccounts(await connect(platform, { role: gap.role, features: gap.features, expect }))
+  const disconnect = useCallback(async (address: string) => {
+    await worker.disconnect(address)
   }, [])
+
+  const forgetServer = useCallback(async () => {
+    await worker.forget()
+  }, [])
+
+  const saveAi = useCallback(
+    async (setup: AiSetup | null) => {
+      if (userId !== LOCAL_USER) await worker.setupAi(setup)
+      if (setup) await platform.secrets.set(AI_SECRET, JSON.stringify(setup))
+      else await platform.secrets.delete(AI_SECRET).catch(() => {})
+      setAiSetup(setup)
+    },
+    [userId],
+  )
 
   /**
    * Starts copying afresh: everything is pulled from the cloud again and
@@ -126,43 +145,45 @@ export function CairnProvider({ children, onFatal }: { children: ReactNode; onFa
    * phone, so this is a real look at the server, not at a cache.
    */
   const runSync = useCallback(async () => {
-    if (!local || !owner(accounts) || syncing) return
+    if (!local || userId === LOCAL_USER || syncing) return
     setSyncing(true)
     try {
       sync.current?.stop()
-      const started = await startSync(local, accounts, platform)
+      const started = await startSync(local, userId)
       sync.current = started
-      setUserId(started.uid)
       await started.ready
       setSyncedAt(Date.now())
-      setAuth({ status: 'synced', email: owner(accounts)!.identity.email })
+      setAuth({ status: 'synced', email: email ?? '' })
     } catch (error) {
       setAuth({ status: 'error', message: describeError(error) })
     } finally {
       setSyncing(false)
     }
-  }, [local, accounts, syncing])
+  }, [local, userId, email, syncing])
 
   const value = useMemo<Cairn | null>(
     () =>
       local
         ? {
             platform,
+            worker,
             userId,
             reminders: local.reminders,
             notes: local.notes,
             auth,
-            accounts,
+            email,
             signIn,
             signOut,
-            connectSource,
-            regrant,
-            disconnectSource,
-            matchAccount,
+            addAccount,
+            grant,
+            watch,
+            disconnect,
+            forgetServer,
+            ai: { setup: aiSetup, save: saveAi },
             sync: { busy: syncing || auth.status === 'connecting', at: syncedAt, run: runSync },
           }
         : null,
-    [local, userId, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource, matchAccount, syncing, syncedAt, runSync],
+    [local, userId, auth, email, signIn, signOut, addAccount, grant, watch, disconnect, forgetServer, aiSetup, saveAi, syncing, syncedAt, runSync],
   )
 
   if (!value) return null

@@ -17,11 +17,12 @@ import { FoldersScreen } from './screens/FoldersScreen'
 import { InboxScreen } from './screens/InboxScreen'
 import { NotesScreen } from './screens/NotesScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { SetupScreen } from './screens/SetupScreen'
 import { TaskEditorScreen } from './screens/TaskEditorScreen'
 import { TasksScreen } from './screens/TasksScreen'
 import { useActions } from './state/actions'
 import { CairnProvider } from './state/CairnProvider'
-import { useCairn } from './state/context'
+import { LOCAL_USER, useCairn } from './state/context'
 import { ALL_FOLDER } from './state/folders'
 import { useNow, useObserved } from './state/hooks'
 import { InboxProvider, useInbox } from './state/inbox'
@@ -77,17 +78,20 @@ interface Editing {
   open: boolean
 }
 
-type Page = 'folders' | 'settings' | null
+type Page = 'folders' | 'settings' | 'setup' | null
+
+/** Set once the guided setup has been finished or skipped. */
+const SETUP_KEY = 'cairn.setup'
 
 function Main() {
   const c = useColors()
-  const { reminders, notes } = useCairn()
+  const { reminders, notes, userId } = useCairn()
   const actions = useActions()
   const { preferences } = usePreferences()
   const inbox = useInbox()
   const active = useObserved(reminders, ACTIVE)
   const now = useNow(active)
-  const notifications = useNotifications(active)
+  const notifications = useNotifications(active, userId !== LOCAL_USER)
   const [section, setSection] = useState<Section>('notes')
   const [folder, setFolder] = useState(ALL_FOLDER)
   const [selecting, setSelecting] = useState(false)
@@ -113,11 +117,26 @@ function Main() {
     void recoverNoteDraft(storage, notes, actions)
   }, [notes, actions])
 
+  // The first launch, and anyone coming from a version that signed in on the phone itself, is walked through setup.
+  useEffect(() => {
+    void storage.get(SETUP_KEY).then((done) => {
+      if (!done) setPage('setup')
+    })
+  }, [])
+  const finishSetup = useCallback(() => {
+    void storage.set(SETUP_KEY, String(Date.now()))
+    setPage(null)
+  }, [])
+
+  // A tapped notification opens what it is about: a task, or what the Worker found.
   useEffect(
     () =>
-      onNotificationOpened((id) => {
-        const reminder = activeRef.current.find((r) => r.id === id)
+      onNotificationOpened((opened) => {
+        setPage((current) => (current === 'setup' ? current : null))
+        if (opened.kind === 'classroom') return setSection('classroom')
+        if (opened.kind === 'inbox') return setSection('inbox')
         setSection('tasks')
+        const reminder = opened.reminderId ? activeRef.current.find((r) => r.id === opened.reminderId) : undefined
         if (reminder) setTask({ reminder })
       }),
     [],
@@ -130,8 +149,8 @@ function Main() {
 
   useEffect(() => {
     setUrgentAlerts(preferences.urgentAlerts)
-    if (notifications.permission === 'granted') void scheduleNotifications(activeRef.current, Date.now())
-  }, [preferences.urgentAlerts, notifications.permission])
+    if (notifications.permission === 'granted') void scheduleNotifications(activeRef.current, Date.now(), { digest: userId === LOCAL_USER })
+  }, [preferences.urgentAlerts, notifications.permission, userId])
 
   const closeEditor = useCallback(() => setEditing((e) => (e ? { ...e, open: false } : e)), [])
   const editorGone = useCallback(() => setEditing(null), [])
@@ -176,8 +195,10 @@ function Main() {
                   setPage(null)
                 }}
               />
+            ) : page === 'setup' ? (
+              <SetupScreen onDone={finishSetup} />
             ) : (
-              <SettingsScreen onBack={closePage} />
+              <SettingsScreen onBack={closePage} onSetup={() => setPage('setup')} />
             )}
           </SafeAreaView>
         </Animated.View>

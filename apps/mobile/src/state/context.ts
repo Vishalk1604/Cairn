@@ -2,11 +2,14 @@ import {
   openLocalRepositories,
   openSyncedRepositories,
   replicate,
-  signInToFirebase,
+  type AiSetup,
   type NoteRepository,
   type ReminderRepository,
+  type Want,
+  type WorkerAccount,
+  type WorkerClient,
 } from '@cairn/sync'
-import { accessTokenFor, owner, type Account, type AccountGap, type Platform, type SourceFeatures } from '@cairn/ui'
+import type { Platform } from '@cairn/ui'
 import { createContext, useContext } from 'react'
 import { storage } from '../platform/storage'
 
@@ -31,21 +34,31 @@ export interface SyncStatus {
 
 export interface Cairn {
   platform: Platform
+  /** Cairn's Worker, which holds the Google accounts and reads them. */
+  worker: WorkerClient
   /** Stamped on everything created; the Firebase uid once signed in. */
   userId: string
   /** Always this device's own store — see replicate() for why. */
   reminders: ReminderRepository
   notes: NoteRepository
   auth: AuthState
-  accounts: Account[]
+  /** The Google account signed in with, which holds the notes. */
+  email: string | null
+  /** Signs in with the personal Google account, through the Worker. */
   signIn(): Promise<void>
   signOut(): Promise<void>
-  connectSource(features: SourceFeatures): Promise<void>
-  /** Asks Google for more permission; returns the accounts as they now stand. */
-  regrant(account: Account, features: SourceFeatures): Promise<Account[]>
-  disconnectSource(sub: string): Promise<void>
-  /** Connects an account, or a permission, the computer has and this phone lacks. */
-  matchAccount(gap: AccountGap): Promise<void>
+  /** Connects another Google account, such as a college one, to read Gmail and Classroom from. */
+  addAccount(): Promise<void>
+  /** Asks Google for more for an account already connected; Google shows only what is new. */
+  grant(email: string, want: readonly Want[]): Promise<void>
+  /** What the Worker reads from an account. */
+  watch(email: string, watch: Partial<WorkerAccount['watch']>): Promise<void>
+  /** Forgets a read-only account, on the Worker too. */
+  disconnect(email: string): Promise<void>
+  /** Stops every check, gives every permission back to Google and deletes what the Worker holds. */
+  forgetServer(): Promise<void>
+  /** The NVIDIA key: kept in this phone's secure storage and sent to the Worker, never to Firestore. */
+  ai: { setup: AiSetup | null; save(setup: AiSetup | null): Promise<void> }
   sync: SyncStatus
 }
 
@@ -72,19 +85,14 @@ export interface Sync {
 }
 
 /**
- * Signs the owner account into Firebase and starts copying both ways.
+ * Starts copying both ways for the signed-in person.
  *
  * The phone's own store stays the one the app reads and writes; this only
  * keeps the cloud in step with it. So signing in never empties the screen
  * while the network is consulted, and work done offline is never at the
  * mercy of an in-memory cache.
  */
-export async function startSync(local: LocalStore, accounts: readonly Account[], platform: Platform): Promise<Sync> {
-  const holder = owner(accounts)
-  if (!holder) throw new Error('No account holds the data yet')
-  const tokens = await accessTokenFor(platform, holder)
-  if (!tokens.idToken) throw new Error('Google did not confirm who you are')
-  const uid = await signInToFirebase(tokens.idToken)
+export async function startSync(local: LocalStore, uid: string): Promise<Sync> {
   const synced = await openSyncedRepositories(uid, (error) => console.error('Sync problem', error))
   const stops = [
     replicate(local.notes, synced.notes, { includeDeleted: true }, uid),
