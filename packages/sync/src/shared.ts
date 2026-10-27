@@ -4,18 +4,18 @@ import { cairnFirestore } from './firebaseApp'
 import type { Unsubscribe } from './repository'
 
 /**
- * What both apps share beyond notes and tasks: the inbox one device reads
- * for all of them, and a handful of small settings documents. Everything is
- * filed under the signed-in user, which is what the rules key on.
+ * What both apps share beyond notes and tasks: the inbox the Worker reads
+ * for them, and a handful of small settings documents. Everything is filed
+ * under the signed-in user, which is what the rules key on.
  *
- * Firestore's free plan allows 20,000 writes a day, so every write here is
- * one that changes something: records are written in batches, once when
- * found and once more when the model has read them, and nothing is written
- * for mail another device already stored.
+ * The Worker writes the records; a device only ever changes what the person
+ * did to one (opened it, hid it, made a task of it) and the settings they
+ * chose. Firestore's free plan allows 20,000 writes a day across everyone,
+ * so each of those is one small write.
  */
 
 /** The small documents under users/{uid}/settings. */
-export type SettingName = 'accounts' | 'reader' | 'inbox' | 'ai'
+export type SettingName = 'accounts' | 'reader' | 'inbox'
 
 const inbox = (uid: string) => collection(cairnFirestore(), 'users', uid, 'inbox')
 const setting = (uid: string, name: SettingName) => doc(cairnFirestore(), 'users', uid, 'settings', name)
