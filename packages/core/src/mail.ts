@@ -34,6 +34,8 @@ export interface ClassroomPost {
   link?: string
   /** Coursework already handed in or returned when it was found: nothing left to do. */
   submitted?: boolean
+  /** Read from Classroom's notification email rather than its API: no description, and hand-in is not followed. */
+  fromEmail?: boolean
 }
 
 export type MailKind = 'classroom' | 'deadline' | 'other'
