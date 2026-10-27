@@ -108,6 +108,37 @@ a {
   text-decoration: underline;
 }
 
+.downloads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.8rem;
+  margin: 1.2rem 0 0.4rem;
+}
+
+.download {
+  display: flex;
+  flex-direction: column;
+  padding: 0.9rem 1.1rem;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--bg);
+  text-decoration: none;
+}
+
+.download:hover,
+.download:focus-visible {
+  background: color-mix(in srgb, var(--accent) 85%, var(--bg));
+}
+
+.download strong {
+  font-size: 1.1rem;
+}
+
+.download span {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
 footer {
   display: flex;
   flex-wrap: wrap;

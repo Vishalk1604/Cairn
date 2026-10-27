@@ -32,14 +32,47 @@
           <li>Notes and reminders that sync between a Windows desktop app and an Android phone.</li>
           <li>Type <em>submit DBMS assignment friday 6pm</em> and get a correctly dated reminder — no date picker.</li>
           <li>Optionally reads your Gmail and Google Classroom to turn assignment deadlines into reminders for you.</li>
+          <li>Your next deadline on your phone's home screen and pinned to your Windows desktop.</li>
         </ul>
       </section>
 
-      <section>
-        <h2>Status</h2>
+      <section id="download">
+        <h2>Download</h2>
+        <p>Version 0.3 for Android 7.0 or newer and Windows 10 or 11. Both always point at the latest release.</p>
+        <div class="downloads">
+          <a class="download" href="https://github.com/Vishalk1604/Cairn/releases/latest/download/Cairn-android.apk">
+            <strong>Android</strong>
+            <span>Cairn-android.apk</span>
+          </a>
+          <a class="download" href="https://github.com/Vishalk1604/Cairn/releases/latest/download/Cairn-windows-setup.exe">
+            <strong>Windows</strong>
+            <span>Cairn-windows-setup.exe</span>
+          </a>
+        </div>
+        <dl>
+          <dt>Installing on Android</dt>
+          <dd>
+            Open the APK from your browser's downloads. Android asks once whether your browser may install apps:
+            tap <strong>Settings</strong>, turn on <strong>Allow from this source</strong>, go back and tap
+            <strong>Install</strong>. Updates install over the top and keep your notes; Cairn says in Settings when
+            there is one.
+          </dd>
+          <dt>Installing on Windows</dt>
+          <dd>
+            Run the installer. It installs for your account only, no admin rights needed. It is not code-signed, so
+            SmartScreen says it does not recognise the publisher: choose <strong>More info</strong>, then
+            <strong>Run anyway</strong>. After that Cairn updates itself.
+          </dd>
+          <dt>Signing in</dt>
+          <dd>
+            Set Cairn up on your phone first, then sign in on the computer with the same Google account. Google warns
+            that it has not verified Cairn, a small personal project; choose <strong>Advanced</strong>, then
+            <strong>Go to Cairn</strong>.
+          </dd>
+        </dl>
         <p>
-          Cairn is a personal project, built for and used by its author. It is not open for general sign-up, and there
-          is nothing to download yet. The source is on
+          Every release lists SHA-256 checksums on its
+          <a href="https://github.com/Vishalk1604/Cairn/releases/latest">release page</a>, and the source is on
           <a href="https://github.com/Vishalk1604/Cairn">GitHub</a>.
         </p>
       </section>
