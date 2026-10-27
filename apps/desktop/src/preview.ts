@@ -1,4 +1,4 @@
-import { createReminder, DAY, HOUR, MINUTE, type InboxRecord } from '@cairn/core'
+import { createNote, createReminder, DAY, deleteNote, HOUR, MINUTE, type InboxRecord } from '@cairn/core'
 import type { AccountsDoc, InboxSettings, NoteRepository, ReaderDoc, ReminderRepository, SettingName } from '@cairn/sync'
 import type { CourseSettings, InboxBackend, InboxHost } from '@cairn/ui'
 import type { Preview } from './app/CairnProvider'
@@ -140,7 +140,7 @@ export const inboxHost: Partial<InboxHost> = {
 
 export const user: Preview = {
   email: ME,
-  async seed({ reminders }: { reminders: ReminderRepository; notes: NoteRepository }) {
+  async seed({ reminders, notes }: { reminders: ReminderRepository; notes: NoteRepository }) {
     if ((await reminders.list()).length) return
     const at = (hours: number) => now + hours * HOUR
     await reminders.upsertMany([
@@ -151,6 +151,11 @@ export const user: Preview = {
         { title: 'Lab 4: normalisation', dueAt: now + 2 * DAY, allDay: true, courseId: 'c1', source: 'classroom', sourceRef: 'w1', tags: ['classroom'] },
         { userId: 'local', now, id: 'classroom-w1' },
       ),
+    ])
+    // Two notes in the recycle bin, for Restore, Delete forever and Empty bin.
+    await notes.upsertMany([
+      deleteNote(createNote({ title: 'Old timetable', body: 'Mon: DBMS lab' }, { userId: 'local', now: now - 20 * DAY, id: 'preview-bin-1' }), now - 2 * DAY),
+      deleteNote(createNote({ title: 'Draft email to the placement cell' }, { userId: 'local', now: now - 40 * DAY, id: 'preview-bin-2' }), now - 28 * DAY),
     ])
   },
 }
