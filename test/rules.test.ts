@@ -74,6 +74,23 @@ describe('the owner', () => {
     await assertSucceeds(deleteDoc(noteAt(mine(), ME, 'n1')))
   })
 
+  it('can delete a note forever, and nothing brings it back but the purge', async () => {
+    await assertSucceeds(setDoc(noteAt(mine(), ME, 'n1'), note('n1', ME, { deletedAt: 1_700_000_001_000 })))
+    const marker = note('n1', ME, { title: '', tags: [], deletedAt: 1_700_000_001_000, purgedAt: 1_700_000_002_000, updatedAt: 1_700_000_002_000 })
+    await assertSucceeds(setDoc(noteAt(mine(), ME, 'n1'), marker))
+    // An older app on a phone that was offline sends its copy, stamped later.
+    await assertFails(setDoc(noteAt(mine(), ME, 'n1'), note('n1', ME, { updatedAt: 1_800_000_000_000 })))
+    await assertSucceeds(setDoc(noteAt(mine(), ME, 'n1'), { ...marker, updatedAt: 1_700_000_003_000 }))
+    await assertSucceeds(deleteDoc(noteAt(mine(), ME, 'n1')))
+  })
+
+  it('keeps a purge marker a tombstone', async () => {
+    await assertFails(setDoc(noteAt(mine(), ME, 'n1'), note('n1', ME, { purgedAt: 1 })))
+    await assertFails(setDoc(reminderAt(mine(), ME, 'r1'), reminder('r1', ME, { deletedAt: 1, purgedAt: 'now' })))
+    await assertSucceeds(setDoc(reminderAt(mine(), ME, 'r1'), reminder('r1', ME, { deletedAt: 1, purgedAt: 2 })))
+    await assertFails(setDoc(reminderAt(mine(), ME, 'r1'), reminder('r1', ME)))
+  })
+
   it('can keep its device registration and widget summary', async () => {
     await assertSucceeds(setDoc(doc(mine(), 'users', ME, 'devices', 'laptop'), { token: 'abc', seenAt: 1 }))
     await assertSucceeds(setDoc(doc(mine(), 'users', ME, 'summary', 'today'), { items: [], generatedAt: 1 }))

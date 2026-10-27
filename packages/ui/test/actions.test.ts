@@ -1,7 +1,7 @@
 import { buildRecurrence, HOUR } from '@cairn/core'
 import { MemoryKeyValueStore, openLocalRepositories } from '@cairn/sync'
 import { describe, expect, it } from 'vitest'
-import { createActions, type Toast } from '../src'
+import { createActions, recycleBin, type Toast } from '../src'
 
 const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime()
 const NOW = at(2026, 9, 14, 10)
@@ -96,6 +96,34 @@ describe('note actions', () => {
     expect(await notes.list()).toEqual([])
     await undo()
     expect(await notes.list()).toHaveLength(1)
+  })
+
+  it('deletes forever from the bin, and an Undo from before cannot bring it back', async () => {
+    const { notes, actions, toasts, advance } = await setup()
+    const n = (await actions.addNote({ title: 'Diary', body: 'private' }))!
+    await actions.removeNote(n)
+    const undoDelete = toasts.at(-1)!.action!
+    advance(1000)
+    const [binned] = recycleBin(await notes.list({ includeDeleted: true }), NOW + 1000).map((e) => e.note)
+    await actions.purgeNotes([binned!])
+    expect(clean(toasts.at(-1)!.message)).toBe('Deleted “Diary” forever')
+    expect(toasts.at(-1)!.action).toBeUndefined()
+    expect(recycleBin(await notes.list({ includeDeleted: true }), NOW + 1000)).toEqual([])
+
+    // The delete's Undo toast was still on screen on another device, say.
+    advance(1000)
+    undoDelete.run()
+    await Promise.resolve()
+    expect(await notes.list()).toEqual([])
+    expect((await notes.get(n.id))?.body).toBeUndefined()
+  })
+
+  it('empties the bin in one go', async () => {
+    const { notes, actions, lastToast } = await setup()
+    for (const title of ['a', 'b', 'c']) await actions.removeNote((await actions.addNote({ title }))!)
+    await actions.purgeNotes(recycleBin(await notes.list({ includeDeleted: true }), NOW).map((e) => e.note))
+    expect(lastToast().message).toBe('Deleted 3 notes forever')
+    expect((await notes.list({ includeDeleted: true })).every((x) => x.purgedAt === NOW && x.title === '')).toBe(true)
   })
 })
 

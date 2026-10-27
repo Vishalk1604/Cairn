@@ -1,5 +1,5 @@
 import { pruneAttachments } from './blocks'
-import { clean, nextStamp, tombstone } from './entity'
+import { clean, nextStamp, purge, tombstone } from './entity'
 import { uuidv7 } from './ids'
 import type { Attachment, CreateContext, Note, Source } from './model'
 import { normalizeTags } from './reminders'
@@ -72,4 +72,13 @@ export function updateNote(note: Note, changes: NoteChanges, now: number): Note 
 
 export function deleteNote(note: Note, now: number): Note {
   return tombstone(note, now)
+}
+
+/**
+ * Delete forever: the note's purge marker, with no title, writing,
+ * attachments or tags left in it. Its photos and recordings stay in Drive's
+ * trash, where the recycle bin already put them, for Drive to empty.
+ */
+export function purgeNote(note: Note, now: number): Note {
+  return purge<Note>(note, now, { title: '', tags: [], pinned: false, source: note.source })
 }

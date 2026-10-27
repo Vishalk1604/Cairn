@@ -1,6 +1,7 @@
+import type { Note } from '@cairn/core'
 import type { NoteQuery } from '@cairn/sync'
-import { binCountdown, noteHeading, recycleBin } from '@cairn/ui'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { binCountdown, noteHeading, purgeWarning, recycleBin, type Actions } from '@cairn/ui'
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated from 'react-native-reanimated'
 import { useActions } from '../state/actions'
 import { useCairn } from '../state/context'
@@ -11,9 +12,19 @@ import { fadeOut, reflow, Tap } from '../ui/motion'
 
 const WITH_DELETED: NoteQuery = { includeDeleted: true }
 
+/** Asks with the system's own dialog before anything is deleted forever. */
+function confirmPurge(actions: Actions, notes: readonly Note[]): void {
+  const warning = purgeWarning(notes.length)
+  Alert.alert(warning.title, warning.message, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: warning.confirm, style: 'destructive', onPress: () => void actions.purgeNotes(notes) },
+  ])
+}
+
 /**
  * Deleted notes, for thirty days. After that Cairn deletes them for good —
  * from this phone, from the cloud, and their photos and recordings from Drive.
+ * Delete forever (a long press) and Empty bin do the same at once, after asking.
  */
 export function RecycleBinScreen({ onBack }: { onBack: () => void }) {
   const c = useColors()
@@ -28,16 +39,28 @@ export function RecycleBinScreen({ onBack }: { onBack: () => void }) {
           <Glyph char="←" color={c.fg} />
         </Tap>
         <Text style={[styles.title, { color: c.fg }]}>Recycle bin</Text>
-        <View style={styles.icon} />
+        {bin.length > 0 ? (
+          <Tap onPress={() => confirmPurge(actions, bin.map((e) => e.note))} scaleTo={0.94} style={styles.empty} accessibilityLabel="Empty the recycle bin">
+            <Text style={{ color: c.danger, fontWeight: '600' }}>Empty</Text>
+          </Tap>
+        ) : (
+          <View style={styles.icon} />
+        )}
       </View>
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={[styles.hint, { color: c.faint }]}>
-          Deleted notes stay here for 30 days, then they are deleted for good, photos and recordings included.
+          Deleted notes stay here for 30 days, then they are deleted for good, photos and recordings included. Press and hold one to delete it forever now.
         </Text>
         {bin.length === 0 && <Text style={[styles.hint, { color: c.muted, paddingTop: 60 }]}>The recycle bin is empty.</Text>}
         {bin.map(({ note, daysLeft }) => (
           <Animated.View key={note.id} exiting={fadeOut} layout={reflow}>
-            <View style={[styles.row, { backgroundColor: c.surface }]}>
+            <Tap
+              onLongPress={() => confirmPurge(actions, [note])}
+              scaleTo={0.98}
+              style={[styles.row, { backgroundColor: c.surface }]}
+              accessibilityLabel={noteHeading(note)}
+              accessibilityHint="Press and hold to delete it forever"
+            >
               <View style={styles.text}>
                 <Text style={[styles.name, { color: c.fg }]} numberOfLines={1}>
                   {noteHeading(note)}
@@ -47,7 +70,7 @@ export function RecycleBinScreen({ onBack }: { onBack: () => void }) {
               <Tap onPress={() => void actions.restoreNote(note)} scaleTo={0.94} style={[styles.restore, { borderColor: c.accent }]}>
                 <Text style={{ color: c.accent, fontWeight: '600' }}>Restore</Text>
               </Tap>
-            </View>
+            </Tap>
           </Animated.View>
         ))}
       </ScrollView>
@@ -66,5 +89,6 @@ const styles = StyleSheet.create({
   name: { fontSize: 19 },
   left: { fontSize: 13 },
   restore: { borderWidth: 1, borderRadius: 16, paddingHorizontal: space.md, paddingVertical: 6 },
+  empty: { minWidth: 48, height: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm },
   hint: { textAlign: 'center', fontSize: 14, lineHeight: 20 },
 })

@@ -481,6 +481,15 @@ textarea:focus-visible {
 }
 
 .quiet-button:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.danger-button {
+  margin-left: auto;
+  color: var(--danger);
+}
+
+.quiet-button:hover:not(:disabled) {
   background: var(--surface-high);
   color: var(--fg);
   filter: none;
@@ -1566,6 +1575,16 @@ dialog::backdrop {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 600;
+}
+
+.editor button.danger {
+  background: var(--danger);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+dialog.confirm {
+  width: min(420px, 92vw);
 }
 
 .accounts-dialog h3 {

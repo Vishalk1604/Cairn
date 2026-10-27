@@ -6,6 +6,7 @@ import {
   deleteReminder,
   nextStamp,
   parseCapture,
+  purgeNote,
   reopenReminder,
   rescheduleReminder,
   revive,
@@ -183,6 +184,18 @@ export function createActions({ reminders, notes, userId, toast, now = Date.now,
         await notes.upsert(alive)
         toast({ message: `Restored “${noteHeading(n)}”` })
         return alive
+      }),
+    /**
+     * Delete forever, from the recycle bin. There is no Undo: the marker that
+     * replaces the note outranks every copy of it, so asking first is the
+     * caller's job.
+     */
+    purgeNotes: (binned: readonly Note[]) =>
+      run(async () => {
+        const gone = binned.filter((n) => n.deletedAt !== undefined).map((n) => purgeNote(n, now()))
+        if (gone.length === 0) return
+        await notes.upsertMany(gone)
+        toast({ message: gone.length === 1 ? `Deleted “${noteHeading(binned[0]!)}” forever` : `Deleted ${gone.length} notes forever` })
       }),
   }
 }

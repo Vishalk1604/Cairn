@@ -8,6 +8,12 @@ export interface Entity {
   updatedAt: number
   /** Tombstone. Entities are never hard-deleted, or offline devices resurrect them. */
   deletedAt?: number
+  /**
+   * Deleted forever: a tombstone emptied of everything but its id and stamps.
+   * It outranks any other version of the same id, however late, so a device
+   * that was offline while it happened cannot bring the content back.
+   */
+  purgedAt?: number
 }
 
 export type Source = 'manual' | 'email' | 'classroom'

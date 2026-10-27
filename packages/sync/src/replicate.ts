@@ -22,6 +22,11 @@ export interface RemoteRepository<T extends Entity, Q> extends Repository<T, Q> 
  * Tombstones past their thirty days travel neither way. The cloud deletes
  * them for good, and a phone that was offline meanwhile must not put them
  * back.
+ *
+ * A note deleted forever is a purge marker, which outranks every other
+ * version (see newerOf). So it goes up even when the cloud holds a copy
+ * stamped later, and a phone that edited the note offline loses that edit to
+ * the marker when it comes back, rather than putting the note back.
  */
 export function replicate<T extends Entity, Q>(
   local: Repository<T, Q>,
@@ -33,6 +38,8 @@ export function replicate<T extends Entity, Q>(
 ): Unsubscribe {
   /** The newest stamp the cloud is known to hold for each id. */
   const cloud = new Map<string, number>()
+  /** Ids the cloud already holds as a purge marker. */
+  const purged = new Set<string>()
   let ready = false
   let running = false
   let again = false
@@ -41,7 +48,10 @@ export function replicate<T extends Entity, Q>(
   const expired = (items: readonly T[]): Set<T> => new Set(purgeableTombstones(items, Date.now()))
 
   const stopRemote = remote.observe(everything, (items) => {
-    for (const item of items) cloud.set(item.id, Math.max(cloud.get(item.id) ?? -Infinity, item.updatedAt))
+    for (const item of items) {
+      cloud.set(item.id, Math.max(cloud.get(item.id) ?? -Infinity, item.updatedAt))
+      if (item.purgedAt !== undefined) purged.add(item.id)
+    }
     const gone = expired(items)
     void local.upsertMany(gone.size ? items.filter((item) => !gone.has(item)) : items)
   })
@@ -63,10 +73,18 @@ export function replicate<T extends Entity, Q>(
         const gone = expired(mine)
         const ahead = mine
           .filter((item) => !gone.has(item))
-          .filter((item) => item.updatedAt > (cloud.get(item.id) ?? -Infinity) || item.userId !== userId)
+          .filter(
+            (item) =>
+              item.updatedAt > (cloud.get(item.id) ?? -Infinity) ||
+              (item.purgedAt !== undefined && !purged.has(item.id)) ||
+              item.userId !== userId,
+          )
           .map((item) => (item.userId === userId ? item : { ...item, userId }))
         if (ahead.length === 0) continue
-        for (const item of ahead) cloud.set(item.id, item.updatedAt)
+        for (const item of ahead) {
+          cloud.set(item.id, Math.max(cloud.get(item.id) ?? -Infinity, item.updatedAt))
+          if (item.purgedAt !== undefined) purged.add(item.id)
+        }
         await remote.upsertMany(ahead)
       } while (again && !stopped)
     } finally {

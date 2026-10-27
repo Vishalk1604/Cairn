@@ -1,4 +1,4 @@
-import { createNote, createReminder, DAY, type Note, type Reminder } from '@cairn/core'
+import { createNote, createReminder, DAY, deleteNote, purgeNote, updateNote, type Note, type Reminder } from '@cairn/core'
 import { describe, expect, it, vi } from 'vitest'
 import {
   LocalRepository,
@@ -74,6 +74,20 @@ describe('writes', () => {
     expect(await repo.purgeTombstones(NOW + 29 * DAY)).toBe(0)
     expect(await repo.purgeTombstones(NOW + 31 * DAY)).toBe(1)
     expect(await repo.get(r.id)).toBeUndefined()
+  })
+
+  it('keeps a purge marker against any later version, until thirty days after the purge', async () => {
+    const repo = notes()
+    const n = note('diary')
+    const marker = purgeNote(deleteNote(n, NOW + 1), NOW + 2)
+    await repo.upsert(marker)
+    // A copy edited offline on a device whose clock runs ahead arrives later.
+    await repo.upsert(updateNote(n, { body: 'still here?' }, NOW + DAY))
+    expect(await repo.get(n.id)).toBe(marker)
+    expect(await repo.list({ includeDeleted: true })).toEqual([marker])
+
+    expect(await repo.purgeTombstones(NOW + 29 * DAY)).toBe(0)
+    expect(await repo.purgeTombstones(NOW + 31 * DAY)).toBe(1)
   })
 })
 

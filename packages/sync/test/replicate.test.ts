@@ -1,4 +1,4 @@
-import { createNote, DAY, deleteNote, updateNote, type Note } from '@cairn/core'
+import { createNote, DAY, deleteNote, purgeNote, updateNote, type Note } from '@cairn/core'
 import { describe, expect, it } from 'vitest'
 import { LocalRepository, matchesNoteQuery, replicate, type NoteQuery, type RemoteRepository } from '../src'
 
@@ -110,5 +110,41 @@ describe('replicate', () => {
     remote.answer()
     await settle()
     expect((await remote.repo.list(EVERYTHING)).map((n) => n.title)).toEqual(['recent'])
+  })
+
+  it('keeps a note deleted forever gone on a phone that edited it offline', async () => {
+    const local = new LocalRepository<Note, NoteQuery>(matchesNoteQuery)
+    const remote = cloud()
+    const n = note('diary', 'uid')
+    // The phone went offline holding the note, and edited it there.
+    await local.upsert(updateNote(n, { body: 'written on the bus' }, NOW + 60 * 60_000))
+    // Meanwhile the laptop deleted it, and then deleted it forever.
+    await remote.repo.upsert(purgeNote(deleteNote(n, NOW + 10), NOW + 20))
+
+    replicate(local, remote.repo, EVERYTHING, 'uid')
+    remote.answer()
+    await settle()
+    const mine = await local.get(n.id)
+    const theirs = await remote.repo.get(n.id)
+    expect(mine?.purgedAt).toBe(NOW + 20)
+    expect(mine?.body).toBeUndefined()
+    expect(theirs?.purgedAt).toBe(NOW + 20)
+    expect(await local.list({})).toEqual([])
+  })
+
+  it('sends a purge up even when the cloud holds a copy stamped later', async () => {
+    const local = new LocalRepository<Note, NoteQuery>(matchesNoteQuery)
+    const remote = cloud()
+    const n = note('diary', 'uid')
+    // Deleted forever on the phone while offline; the laptop edited it later still.
+    await local.upsert(purgeNote(deleteNote(n, NOW + 10), NOW + 20))
+    await remote.repo.upsert(updateNote(n, { title: 'edited on the laptop' }, NOW + 3_600_000))
+
+    replicate(local, remote.repo, EVERYTHING, 'uid')
+    remote.answer()
+    await settle()
+    expect((await remote.repo.get(n.id))?.purgedAt).toBe(NOW + 20)
+    expect((await remote.repo.get(n.id))?.title).toBe('')
+    expect((await local.get(n.id))?.purgedAt).toBe(NOW + 20)
   })
 })

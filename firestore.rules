@@ -20,7 +20,18 @@ service cloud.firestore {
       return request.resource.data.id == docId
         && request.resource.data.createdAt is number
         && request.resource.data.updatedAt is number
-        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt is number);
+        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt is number)
+        && (!('purgedAt' in request.resource.data)
+          || (request.resource.data.purgedAt is number && 'deletedAt' in request.resource.data));
+    }
+
+    // Deleted forever stays deleted: once a document is a purge marker, only
+    // another marker may replace it (or the purge that removes it). An older
+    // app that has never heard of purgedAt cannot write the note back.
+    function staysPurged() {
+      return resource == null
+        || !('purgedAt' in resource.data)
+        || 'purgedAt' in request.resource.data;
     }
 
     match /users/{userId}/notes/{noteId} {
@@ -28,6 +39,7 @@ service cloud.firestore {
       allow create, update: if signedInAs(userId)
         && ownedBy(userId)
         && wellFormed(noteId)
+        && staysPurged()
         && request.resource.data.title is string
         && request.resource.data.pinned is bool
         && request.resource.data.tags is list
@@ -42,6 +54,7 @@ service cloud.firestore {
       allow create, update: if signedInAs(userId)
         && ownedBy(userId)
         && wellFormed(reminderId)
+        && staysPurged()
         && request.resource.data.title is string
         && request.resource.data.dueAt is number
         && request.resource.data.allDay is bool
