@@ -42,3 +42,7 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 .idea/
+
+# Release keys and git bundles never belong in the repository
+*.key
+*.bundle

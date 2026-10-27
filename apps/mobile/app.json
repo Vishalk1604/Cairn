@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "plugins": [
       "./plugins/withShortNativeBuildPath",
+      "./plugins/withReleaseSigning",
       [
         "expo-audio",
         {
