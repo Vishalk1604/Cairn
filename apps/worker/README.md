@@ -160,6 +160,9 @@ so both apps use it. Alternatively set `VITE_CAIRN_WORKER_URL` in
 phone app.
 
 The desktop's content security policy already allows `https://*.workers.dev`.
+If you put the Worker on a domain of your own instead, add it to `connect-src`
+in `apps/desktop/src-tauri/tauri.conf.json`, and use that domain for
+`PUBLIC_URL` and the redirect URI too.
 
 ### 6. Deploy
 
