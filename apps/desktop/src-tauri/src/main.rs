@@ -80,6 +80,8 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        // Checks the latest GitHub release's latest.json, signed with the release key (docs/release.md).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // The hotkey is handled here rather than in the web view: Windows only
         // lets a process take the foreground in the moment it receives the
         // hotkey, and a round trip through JavaScript arrives too late, leaving

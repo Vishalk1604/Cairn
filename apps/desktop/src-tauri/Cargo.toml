@@ -1,9 +1,9 @@
 [package]
 name = "cairn"
-version = "0.2.0"
+version = "0.3.0"
 description = "Notes and reminders that keep your next deadline visible"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.90"
 
 [build-dependencies]
 tauri-build = { version = "2.7.3", features = [] }
@@ -16,6 +16,7 @@ tauri-plugin-global-shortcut = "2.4.1"
 tauri-plugin-notification = "2.7.0"
 tauri-plugin-single-instance = "2.5.4"
 tauri-plugin-store = "2.5.0"
+tauri-plugin-updater = "~2.13.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 open = "5.4"

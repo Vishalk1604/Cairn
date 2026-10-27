@@ -7,8 +7,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, onAction, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { load, type Store } from '@tauri-apps/plugin-store'
+import { check } from '@tauri-apps/plugin-updater'
 import { DESK_ACTION_EVENT, DESK_DATA_EVENT, DESK_LABEL, type DeskAction } from '../desk/feed'
-import type { DesktopClassroom, DesktopDesk, DesktopMedia, DesktopPlatform } from './types'
+import type { DesktopClassroom, DesktopDesk, DesktopMedia, DesktopPlatform, DesktopUpdates } from './types'
 
 /** Raised by the shell for the hotkey and the tray menu item. */
 const QUICK_CAPTURE_EVENT = 'cairn://quick-capture'
@@ -81,6 +82,14 @@ const desk: DesktopDesk = {
   pin: (enabled) => invoke<boolean>('desk_pin', { enabled }),
   send: (data) => emitTo(DESK_LABEL, DESK_DATA_EVENT, data),
   onAction: (handler) => listen<DeskAction>(DESK_ACTION_EVENT, (event) => handler(event.payload)),
+}
+
+const updates: DesktopUpdates = {
+  async check() {
+    const update = await check()
+    if (!update) return null
+    return { version: update.version, install: () => update.downloadAndInstall() }
+  },
 }
 
 export const tauriPlatform: DesktopPlatform = {
@@ -163,6 +172,7 @@ export const tauriPlatform: DesktopPlatform = {
   media,
   classroom,
   desk,
+  updates,
 
   async authorize(buildUrl) {
     // The shell opens a loopback port first, because the redirect address

@@ -7,6 +7,7 @@ import { useObserved } from '../app/hooks'
 import { useInbox } from '../app/inbox'
 import { useMediaFolder } from '../app/media'
 import { useToast } from '../app/toast'
+import { checkForUpdate, installUpdate, useUpdate } from '../app/updates'
 import type { PermissionState } from '../platform'
 import { ProfileDialog } from './ProfileDialog'
 import { LinkRow, Row, Section, Switch } from './SettingsParts'
@@ -315,8 +316,27 @@ function SystemSection() {
 
 function AboutSection() {
   const { platform } = useCairn()
+  const update = useUpdate()
   return (
     <Section title="About">
+      {update.available ? (
+        <Row title={`Update to ${update.available.version}`} detail={update.installing ? 'Downloading… Cairn closes and opens again on the new version.' : (update.error ?? `You have ${__APP_VERSION__}.`)} tone={update.error ? 'danger' : undefined}>
+          <button type="button" className="accent-button" disabled={update.installing} onClick={() => void installUpdate()}>
+            {update.installing ? 'Updating…' : 'Update'}
+          </button>
+        </Row>
+      ) : (
+        <Row
+          title={`Cairn ${__APP_VERSION__}`}
+          detail={!platform.updates ? 'Updates come with the Windows app.' : update.checking ? 'Checking for a new version…' : update.checkedAt ? 'Up to date.' : 'Checks for new versions once a day.'}
+        >
+          {platform.updates && (
+            <button type="button" className="button quiet-button" disabled={update.checking} onClick={() => void checkForUpdate(platform)}>
+              Check now
+            </button>
+          )}
+        </Row>
+      )}
       <Row title="Privacy policy">
         <button type="button" className="button quiet-button" onClick={() => void platform.openLink(`${SITE}/privacy`)}>
           Open

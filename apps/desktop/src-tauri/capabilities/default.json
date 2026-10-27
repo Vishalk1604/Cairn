@@ -16,6 +16,7 @@
     "core:event:allow-emit-to",
     "notification:default",
     "store:default",
+    "updater:default",
     "dialog:allow-open",
     "autostart:allow-enable",
     "autostart:allow-disable",

@@ -33,6 +33,8 @@ async function start() {
   // ?preview&desk shows the pinned widget instead, fed in the page.
   const deskPreview = preview && new URLSearchParams(location.search).has('desk') ? await import('./desk/DeskPreview') : null
   if (deskPreview) document.documentElement.classList.add('desk-window', 'desk-preview')
+  // ?preview&update shows the update row in Settings → About as if a new version were out.
+  if (preview && new URLSearchParams(location.search).has('update')) (await import('./app/updates')).pretendUpdate('0.3.1')
   root.render(
     <StrictMode>
       <CairnProvider platform={preview?.platform ?? detectPlatform()} preview={preview?.user}>

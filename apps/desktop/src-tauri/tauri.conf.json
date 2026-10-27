@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Cairn",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "io.github.vishalk1604.cairn",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -45,6 +45,17 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE-WITH-THE-TAURI-UPDATER-PUBLIC-KEY (see docs/release.md)",
+      "endpoints": [
+        "https://github.com/Vishalk1604/Cairn/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

@@ -35,6 +35,19 @@ export interface DesktopPlatform extends Platform {
   readonly classroom: DesktopClassroom | null
   /** Today pinned to the desktop, a window of its own. Null in a browser. */
   readonly desk: DesktopDesk | null
+  /** New versions from GitHub Releases, signed. Null in a browser. */
+  readonly updates: DesktopUpdates | null
+}
+
+export interface DesktopUpdate {
+  version: string
+  /** Downloads it, checks its signature and runs the installer, which closes Cairn and opens the new one. */
+  install(): Promise<void>
+}
+
+export interface DesktopUpdates {
+  /** The newer version on the latest release, or null when this is it. */
+  check(): Promise<DesktopUpdate | null>
 }
 
 /** The main window's side of the pinned widget (desk/feed.ts). */

@@ -1,6 +1,6 @@
 {
   "name": "@cairn/desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,6 +23,7 @@
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-notification": "^2.7.0",
     "@tauri-apps/plugin-store": "^2.5.0",
+    "@tauri-apps/plugin-updater": "~2.13.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

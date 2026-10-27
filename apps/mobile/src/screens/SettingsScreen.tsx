@@ -1,7 +1,6 @@
 import { AiError, checkAiKey, modelsFor, readAiSetup, type AiSetup, type NoteQuery } from '@cairn/sync'
 import { DEFAULT_PROFILE, PROFILE_LIMIT } from '@cairn/core'
 import { accountProblem, CLASSROOM_FROM_EMAIL, readerStatus, reading, recycleBin, type WorkerAccount } from '@cairn/ui'
-import Constants from 'expo-constants'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ActivityIndicator, BackHandler, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated'
@@ -13,6 +12,7 @@ import { useObserved } from '../state/hooks'
 import { useInbox } from '../state/inbox'
 import { usePreferences, type FontSize, type Layout, type SortOrder } from '../state/preferences'
 import { useToast } from '../state/toast'
+import { APP_VERSION, useAppUpdate } from '../state/updates'
 import { radius, space, useColors } from '../theme'
 import { Glyph } from '../ui/icons'
 import { fadeIn, fadeOut, sheetIn, sheetOut, Tap } from '../ui/motion'
@@ -83,6 +83,8 @@ export function SettingsScreen({ onBack, onSetup }: { onBack: () => void; onSetu
    * permission, so switching back on is instant. Switching on asks Google
    * first when the permission is missing, and reading starts from that moment.
    */
+  const newer = useAppUpdate()
+
   const toggle = (account: WorkerAccount, what: 'mail' | 'classroom') => {
     void run(`${account.email}:${what}`, async () => {
       if (reading(account, what)) return cairn.watch(account.email, { [what]: false })
@@ -266,7 +268,23 @@ export function SettingsScreen({ onBack, onSetup }: { onBack: () => void; onSetu
         </Section>
 
         <Section title="About">
-          <Row title="Version" value={Constants.expoConfig?.version ?? '—'} />
+          {newer.release && (
+            <View style={[styles.card, styles.updateCard, { backgroundColor: c.surface, borderColor: c.accent }]}>
+              <View style={styles.rowText}>
+                <Text style={[styles.rowTitle, { color: c.fg }]}>Cairn {newer.release.version} is available</Text>
+                <Text style={[styles.rowDetail, { color: c.muted }]}>You have {APP_VERSION}. It installs over this one and keeps your notes.</Text>
+              </View>
+              <View style={styles.updateButtons}>
+                <Tap onPress={newer.dismiss} scaleTo={0.94} style={styles.updateLater} accessibilityLabel="Not now">
+                  <Text style={{ color: c.muted }}>Not now</Text>
+                </Tap>
+                <Tap onPress={() => void Linking.openURL(newer.release!.apkUrl)} scaleTo={0.94} haptic="medium" style={[styles.updateGet, { backgroundColor: c.accent }]}>
+                  <Text style={{ color: c.onAccent, fontWeight: '700' }}>Download</Text>
+                </Tap>
+              </View>
+            </View>
+          )}
+          <Row title="Version" value={APP_VERSION} />
           <Row title="Privacy policy" trailing={<Glyph char="›" color={c.muted} size={26} />} onPress={() => void Linking.openURL(`${SITE}/privacy`)} />
           <Row title="Terms" trailing={<Glyph char="›" color={c.muted} size={26} />} onPress={() => void Linking.openURL(`${SITE}/terms`)} />
         </Section>
@@ -562,6 +580,10 @@ function Row({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  updateCard: { borderWidth: 1, gap: space.md, padding: space.lg, marginBottom: space.sm },
+  updateButtons: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: space.md },
+  updateLater: { paddingHorizontal: space.md, paddingVertical: space.sm },
+  updateGet: { paddingHorizontal: space.lg, paddingVertical: space.sm, borderRadius: 18 },
   flex: { flex: 1 },
   bar: { flexDirection: 'row', paddingHorizontal: space.sm, paddingTop: space.sm, height: 60, alignItems: 'center' },
   icon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 24 },

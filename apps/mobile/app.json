@@ -3,7 +3,7 @@
     "name": "Cairn",
     "slug": "cairn",
     "scheme": ["cairn", "io.github.vishalk1604.cairn"],
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -56,7 +56,7 @@
     "android": {
       "package": "io.github.vishalk1604.cairn",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "android.permission.USE_EXACT_ALARM",
         "android.permission.SCHEDULE_EXACT_ALARM"

@@ -24,6 +24,7 @@ import { DoneView, TasksView } from './components/TasksView'
 import { TitleBar } from './components/TitleBar'
 import { TodayView } from './components/TodayView'
 import { useDeskData, useDeskFeed } from './desk/useDesk'
+import { useUpdateChecks } from './app/updates'
 
 type Editing = { kind: 'task'; reminder?: Reminder; text?: string } | { kind: 'note'; note?: Note }
 
@@ -108,6 +109,8 @@ export function App() {
     setSection('tasks')
     if (reminder) setEditing({ kind: 'task', reminder })
   })
+
+  useUpdateChecks(platform)
 
   // Today pinned to the desktop: told what to show, and asked to tick a task off or open up.
   useDeskFeed(useDeskData(active, now), (action) => {

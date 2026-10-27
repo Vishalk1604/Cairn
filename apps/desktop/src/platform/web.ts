@@ -89,6 +89,7 @@ export const webPlatform: DesktopPlatform = {
   media: null,
   classroom: null,
   desk: null,
+  updates: null,
 
   async authorize() {
     throw new Error('Signing in needs the Cairn desktop app, which can listen for the reply from your browser')
