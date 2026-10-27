@@ -22,6 +22,7 @@ import { Sidebar, type Section } from './components/Sidebar'
 import { TaskPanel } from './components/TaskPanel'
 import { DoneView, TasksView } from './components/TasksView'
 import { TitleBar } from './components/TitleBar'
+import { TodayView } from './components/TodayView'
 
 type Editing = { kind: 'task'; reminder?: Reminder; text?: string } | { kind: 'note'; note?: Note }
 
@@ -29,9 +30,10 @@ const ACTIVE: ReminderQuery = { status: ['pending', 'snoozed'] }
 const NOTES: NoteQuery = {}
 
 /**
- * One window, two shapes. Small, it is a widget on the desktop: what is due,
- * your notes, and a box to write in. Expanded, it is the full app: folders
- * down the side, notes as a grid, and a task opening beside the list.
+ * One window, two shapes. Small, it is a widget on the desktop that opens on
+ * Today: what is due, what came in from Classroom, the mail that matters,
+ * and a box to write in. Expanded, it is the full app: folders down the
+ * side, notes as a grid, and a task opening beside the list.
  */
 export function App() {
   const { reminders, notes, platform, auth } = useCairn()
@@ -41,7 +43,7 @@ export function App() {
   const wide = useWide()
   const { pinned, toggle } = usePinnedFolders()
   const folders = useMemo(() => foldersOf(allNotes, pinned), [allNotes, pinned])
-  const [section, setSection] = useState<Section>('tasks')
+  const [section, setSection] = useState<Section>('today')
   const [folder, setFolder] = useState(ALL_FOLDER)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
@@ -72,7 +74,7 @@ export function App() {
         // an input in a hidden window cannot take the caret.
         await platform.showWindow()
         setEditing(null)
-        setSection((current) => (current === 'notes' ? current : 'tasks'))
+        setSection((current) => (current === 'notes' || current === 'tasks' ? current : 'today'))
         // After the capture box has rendered in the section just opened.
         setTimeout(() => {
           captureRef.current?.focus()
@@ -100,7 +102,7 @@ export function App() {
     })
   }, [platform, tray.worst, tray.tooltip])
 
-  useAlertScheduler(active, (id) => {
+  useAlertScheduler(active, inbox, (id) => {
     const reminder = active.find((r) => r.id === id)
     setSection('tasks')
     if (reminder) setEditing({ kind: 'task', reminder })
@@ -142,6 +144,8 @@ export function App() {
       <InboxView onSettings={() => go('settings')} />
     ) : section === 'classroom' ? (
       <ClassroomView onSettings={() => go('settings')} files={filesOpen} onFiles={setFilesOpen} />
+    ) : section === 'today' ? (
+      <TodayView active={active} now={now} capture={capture} onEdit={(reminder) => setEditing({ kind: 'task', reminder })} onSection={go} />
     ) : (
       <TasksView
         active={active}
@@ -178,7 +182,7 @@ export function App() {
             <NoteEditor key={editing.note?.id ?? 'new'} note={editing.note} onClose={() => setEditing(null)} />
           ) : (
             <>
-              {!wide && <WidgetNav section={section} taskCount={active.length} overdue={overdue} unseen={unseen} onSection={go} />}
+              {!wide && <WidgetNav section={section} overdue={overdue} unseen={unseen} onSection={go} />}
               <NotificationBanner />
               <div className="scroll">{view}</div>
             </>
@@ -198,16 +202,17 @@ export function App() {
   )
 }
 
-/** The widget's switcher, in place of the full app's sidebar. */
+/**
+ * The widget's switcher, in place of the full app's sidebar. Today holds
+ * what is due; the full list of tasks opens from there.
+ */
 function WidgetNav({
   section,
-  taskCount,
   overdue,
   unseen,
   onSection,
 }: {
   section: Section
-  taskCount: number
   overdue: number
   unseen: { inbox: number; classroom: number }
   onSection: (s: Section) => void
@@ -215,9 +220,9 @@ function WidgetNav({
   return (
     <nav className="widget-nav" aria-label="Cairn">
       <div className="seg" role="tablist">
-        <button type="button" role="tab" aria-selected={section === 'tasks'} onClick={() => onSection('tasks')}>
-          Tasks
-          {taskCount > 0 && <span className={`seg-count ${overdue ? 'danger' : ''}`}>{overdue ? `${overdue} late` : taskCount}</span>}
+        <button type="button" role="tab" aria-selected={section === 'today' || section === 'tasks'} onClick={() => onSection('today')}>
+          Today
+          {overdue > 0 && <span className="seg-count danger">{overdue} late</span>}
         </button>
         <button type="button" role="tab" aria-selected={section === 'notes'} onClick={() => onSection('notes')}>
           Notes

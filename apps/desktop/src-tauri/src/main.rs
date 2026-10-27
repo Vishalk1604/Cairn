@@ -79,10 +79,6 @@ fn main() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        // NVIDIA's API is for servers and sends no CORS headers, so the web
-        // view's own fetch cannot reach it. This one goes out from here, and
-        // only to NVIDIA: see the http scope in capabilities/default.json.
-        .plugin(tauri_plugin_http::init())
         // The hotkey is handled here rather than in the web view: Windows only
         // lets a process take the foreground in the moment it receives the
         // hotkey, and a round trip through JavaScript arrives too late, leaving

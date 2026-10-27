@@ -2159,3 +2159,86 @@ dialog::backdrop {
 .shell.widget .settings-row .sync-text {
   display: none;
 }
+
+/* What only the phone changes, in Settings. */
+.managed {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 7%, var(--surface));
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Today: what the widget opens on. */
+.today-part {
+  max-width: 880px;
+  margin-bottom: 22px;
+}
+
+.today-part .group-head .spacer {
+  flex: 1;
+}
+
+.today-more {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.today-empty {
+  margin: 0 4px;
+  color: var(--faint);
+  font-size: 13px;
+}
+
+.today-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+  color: inherit;
+  text-align: left;
+}
+
+.today-item:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--fg) 6%);
+}
+
+.today-item-meta {
+  color: var(--faint);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-item-title {
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.today-item-summary {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

@@ -1,29 +1,28 @@
-import type { NoteRepository, ReminderRepository } from '@cairn/sync'
-import type { Account, AccountGap, SourceFeatures } from '@cairn/ui'
+import type { NoteRepository, ReminderRepository, Want, WorkerClient } from '@cairn/sync'
 import { createContext, useContext } from 'react'
 import type { DesktopPlatform } from '../platform'
 import type { AuthState } from './CairnProvider'
 
 export interface Cairn {
   platform: DesktopPlatform
-  /** `local` until an account is connected, then the Firebase uid. */
+  /** Cairn's Worker, which holds the Google accounts and reads them. */
+  worker: WorkerClient
+  /** `local` until signed in, then the Firebase uid. */
   userId: string
   reminders: ReminderRepository
   notes: NoteRepository
   auth: AuthState
-  /** The owner account, if any, followed by whatever is connected for reading. */
-  accounts: Account[]
-  /** Connects the account that will hold the data. */
+  /** The Google account signed in with, which holds the notes. */
+  email: string | null
+  /** The one sign-in this computer has: the account the phone set Cairn up with. */
   signIn(): Promise<void>
-  /** Forgets every account and goes back to this machine only. */
+  /** Signs this computer out. The Worker and the phone carry on. */
   signOut(): Promise<void>
-  /** Adds another account to read Gmail or Classroom from. */
-  connectSource(features: SourceFeatures): Promise<void>
-  /** Asks an account already connected for one more permission. */
-  regrant(account: Account, features: SourceFeatures): Promise<void>
-  disconnectSource(sub: string): Promise<void>
-  /** Connects an account, or a permission, the phone has and this computer lacks. Google asks here separately. */
-  matchAccount(gap: AccountGap): Promise<void>
+  /**
+   * Asks Google, in the browser, for one more permission for an account the
+   * phone connected — Classroom files, the one thing only this computer uses.
+   */
+  grant(email: string, want: readonly Want[]): Promise<void>
   /** Notes and tasks reaching the cloud. */
   sync: { busy: boolean; at: number | null; run(): Promise<void> }
 }

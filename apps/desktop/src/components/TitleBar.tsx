@@ -1,4 +1,3 @@
-import { owner } from '@cairn/ui'
 import type { MouseEvent } from 'react'
 import { useCairn } from '../app/context'
 import { CloseIcon, ExpandIcon, MinimizeIcon, WidgetIcon } from './icons'
@@ -9,11 +8,10 @@ import { CloseIcon, ExpandIcon, MinimizeIcon, WidgetIcon } from './icons'
  * full app. Closing only hides — reminders keep firing from the tray.
  */
 export function TitleBar({ wide }: { wide: boolean }) {
-  const { platform, auth, accounts } = useCairn()
-  const holder = owner(accounts)
+  const { platform, auth, email } = useCairn()
   const status =
-    auth.status === 'synced' && holder
-      ? `Syncing as ${holder.identity.email}`
+    auth.status === 'synced' && email
+      ? `Syncing as ${email}`
       : auth.status === 'connecting'
         ? 'Connecting…'
         : auth.status === 'error'

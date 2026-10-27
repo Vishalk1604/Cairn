@@ -74,7 +74,7 @@ export function TasksView({ active, now, capture, onEdit, onNew }: Props) {
   )
 }
 
-const TaskRow = memo(function TaskRow({ reminder: r, level, now, onEdit }: { reminder: Reminder; level: UrgencyLevel; now: number; onEdit: (r: Reminder) => void }) {
+export const TaskRow = memo(function TaskRow({ reminder: r, level, now, onEdit }: { reminder: Reminder; level: UrgencyLevel; now: number; onEdit: (r: Reminder) => void }) {
   const actions = useActions()
   const snoozed = r.status === 'snoozed' && (r.snoozedUntil ?? 0) > now
   return (

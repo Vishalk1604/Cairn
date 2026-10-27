@@ -1,17 +1,17 @@
-import { classroomCourses, classroomFiles, driveFetch, driveFileInfo, GoogleApiError, type Course } from '@cairn/sync'
+import { classroomCourses, classroomFiles, driveFetch, driveFileInfo, GoogleApiError, WorkerError, type Course } from '@cairn/sync'
 import {
-  accessTokenFor,
   classroomDownload,
   classroomFilePath,
-  featuresOf,
+  fileReaders,
   newClassroomFiles,
   readClassroomFilesState,
   recentCoursesFirst,
-  type Account,
   type ClassroomFilesState,
+  type WorkerAccount,
 } from '@cairn/ui'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useCairn } from './context'
+import { useInbox } from './inbox'
 
 const STATE_KEY = 'cairn.classroomFiles'
 /** Teachers post a few times a day at most; a look every quarter hour costs a handful of requests. */
@@ -33,7 +33,11 @@ export interface ClassroomCourse {
 
 export interface ClassroomFiles {
   /** Accounts allowed to download class files. */
-  readers: Account[]
+  readers: WorkerAccount[]
+  /** Accounts reading Classroom that have not allowed it yet. */
+  waiting: WorkerAccount[]
+  /** Opens the browser so Google can let Cairn read one account's class files. */
+  allow(email: string): Promise<void>
   folder: string
   isDefault: boolean
   /** Every class joined, newest first. */
@@ -70,14 +74,14 @@ function permanent(error: unknown): string | null {
   return null
 }
 
-function describe(account: Account, error: unknown): string {
+function describe(account: WorkerAccount, error: unknown): string {
   const text =
-    error instanceof GoogleApiError && error.missingScope
+    (error instanceof GoogleApiError && error.missingScope) || (error instanceof WorkerError && error.needsConsent)
       ? 'Google no longer lets Cairn read these files. Allow it again below.'
       : error instanceof Error
         ? error.message
         : String(error)
-  return `${account.identity.email}: ${text}`
+  return `${account.email}: ${text}`
 }
 
 /**
@@ -89,11 +93,12 @@ function describe(account: Account, error: unknown): string {
  * never fetched again or overwritten.
  */
 export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
-  const { platform, accounts } = useCairn()
+  const { platform, worker, grant } = useCairn()
+  const { accounts } = useInbox()
   const classroom = platform.classroom
   const [state, setState] = useState<ClassroomFilesState | null>(null)
   const [fallback, setFallback] = useState<string | null>(null)
-  const [joined, setJoined] = useState<{ account: Account; course: Course }[] | null>(null)
+  const [joined, setJoined] = useState<{ account: WorkerAccount; course: Course }[] | null>(null)
   const [checking, setChecking] = useState(false)
   const [lastRun, setLastRun] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +107,10 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
   const busy = useRef(false)
   const again = useRef(false)
 
-  const readers = useMemo(() => accounts.filter((a) => featuresOf(a).files), [accounts])
+  const readers = useMemo(() => fileReaders(accounts), [accounts])
+  const waiting = useMemo(() => accounts.filter((a) => a.services.includes('classroom') && !a.services.includes('files')), [accounts])
+  /** A token from the Worker for this one job: Classroom and Drive, read only. */
+  const tokenFor = useCallback(async (account: WorkerAccount) => (await worker.token(account.email, 'classroomFiles')).accessToken, [worker])
   const folder = state?.folder || fallback
 
   useEffect(() => {
@@ -124,11 +132,11 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
 
   /** Every class each account is in. One request per account. */
   const loadCourses = useCallback(async () => {
-    const found: { account: Account; course: Course }[] = []
+    const found: { account: WorkerAccount; course: Course }[] = []
     const problems: string[] = []
     for (const account of readers) {
       try {
-        const { accessToken } = await accessTokenFor(platform, account)
+        const accessToken = await tokenFor(account)
         for (const course of await classroomCourses(accessToken)) found.push({ account, course })
       } catch (e) {
         problems.push(describe(account, e))
@@ -136,7 +144,7 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
     }
     setJoined(found)
     return { found, problems }
-  }, [readers, platform])
+  }, [readers, tokenFor])
 
   const look = useCallback(async () => {
     if (!classroom || !folder || readers.length === 0) return
@@ -157,7 +165,7 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
         const chosen = found.filter((j) => j.account === account && current.courses.includes(j.course.id)).map((j) => j.course)
         if (chosen.length === 0) continue
         try {
-          const { accessToken } = await accessTokenFor(platform, account)
+          const accessToken = await tokenFor(account)
           const { files } = await classroomFiles(accessToken, chosen)
           for (const item of newClassroomFiles(files, next)) {
             try {
@@ -204,7 +212,7 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
         setTimeout(() => void lookRef.current(), 0)
       }
     }
-  }, [classroom, folder, readers, platform, keep, loadCourses])
+  }, [classroom, folder, readers, platform, keep, loadCourses, tokenFor])
 
   const lookRef = useRef(look)
   lookRef.current = look
@@ -230,7 +238,7 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ClassroomFiles | null>(() => {
     if (!classroom || !state || !folder) return null
     const records = Object.values(state.files)
-    const courses = recentCoursesFirst(joined?.map((j) => ({ ...j.course, account: j.account.identity.email })) ?? []).map((c) => ({
+    const courses = recentCoursesFirst(joined?.map((j) => ({ ...j.course, account: j.account.email })) ?? []).map((c) => ({
       id: c.id,
       name: c.name,
       section: c.section,
@@ -240,6 +248,8 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
     }))
     return {
       readers,
+      waiting,
+      allow: (email) => grant(email, ['files']),
       folder,
       isDefault: !state.folder,
       courses,
@@ -270,7 +280,7 @@ export function ClassroomFilesProvider({ children }: { children: ReactNode }) {
         await lookRef.current()
       },
     }
-  }, [classroom, state, folder, fallback, joined, readers, checking, lastRun, error, keep])
+  }, [classroom, state, folder, fallback, joined, readers, waiting, grant, checking, lastRun, error, keep])
 
   return <Context.Provider value={value}>{children}</Context.Provider>
 }

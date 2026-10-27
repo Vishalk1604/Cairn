@@ -1,121 +1,30 @@
-import {
-  authorizeUrl,
-  createPkce,
-  exchangeCode,
-  isExpired,
-  randomState,
-  readIdToken,
-  readRedirect,
-  refreshTokens,
-  webCrypto,
-  type GoogleIdentity,
-  type TokenSet,
-} from '@cairn/auth'
-import { GOOGLE_SCOPES } from '@cairn/sync'
-import type { Platform, SecretStore } from './platform'
+import { createPkce, randomState, readRedirect, webCrypto } from '@cairn/auth'
+import type { AccountsDoc, Service, Want, WorkerAccount, WorkerClient } from '@cairn/sync'
+import type { Platform } from './platform'
 
 /**
- * Every connected account, encrypted together in the host's secret store:
- * DPAPI on Windows, the keystore on Android.
- */
-const ACCOUNTS_KEY = 'google-accounts'
-
-/**
- * What the token endpoint is told about this client. Both halves come from
- * the host because only the host knows them: Google requires a "secret" at
- * the token exchange for a Desktop client even alongside PKCE, and requires
- * none at all for an Android one.
- */
-function credentials(platform: Platform): { clientId: string; clientSecret?: string } {
-  return { clientId: platform.googleClientId, clientSecret: platform.googleClientSecret() }
-}
-
-/**
- * The account Cairn belongs to, or one it only reads from.
+ * Google accounts, as the apps see them now that the Worker holds them.
  *
- * Exactly one account is the owner: it holds the notes, the reminders and
- * the Drive files. Any other is a source — a second inbox to watch, such as
- * a university account — and nothing is ever written to it. That separation
- * is what lets a university account be read for as long as it exists without
- * taking your notes with it when it is closed.
+ * A device never keeps a Google refresh token. Signing in, adding a college
+ * account or granting one more permission all run the Worker's consent flow
+ * in the browser; the Worker keeps the grant and the device gets back only
+ * who signed in — and, when signing in, the ID token for Firebase. What each
+ * account is connected for is in settings/accounts, which the Worker writes
+ * and both apps show.
  */
-export type AccountRole = 'owner' | 'source'
 
-export interface Account {
-  identity: GoogleIdentity
-  role: AccountRole
-  /** What Google actually granted, which can be less than was asked for. */
-  scopes: string[]
-  refreshToken: string
+export type { Service, Want, WorkerAccount }
+
+export const SERVICE_NAMES: Record<Service, string> = {
+  drive: 'Drive',
+  mail: 'Gmail',
+  classroom: 'Classroom',
+  announcements: 'Classroom announcements',
+  files: 'Classroom files',
 }
 
-/** What a source account is being read for. */
-export interface SourceFeatures {
-  mail: boolean
-  classroom: boolean
-  /** Downloading the files teachers attach in Classroom, on the desktop. Implies Classroom. */
-  files?: boolean
-}
-
-interface Stored {
-  version: 1
-  accounts: Account[]
-}
-
-export async function loadAccounts(secrets: SecretStore): Promise<Account[]> {
-  const raw = await secrets.get(ACCOUNTS_KEY)
-  if (!raw) return []
-  try {
-    const stored = JSON.parse(raw) as Partial<Stored>
-    if (stored.version !== 1 || !Array.isArray(stored.accounts)) return []
-    return stored.accounts.filter((a) => a?.refreshToken && a.identity?.sub)
-  } catch {
-    return []
-  }
-}
-
-async function save(secrets: SecretStore, accounts: readonly Account[]): Promise<void> {
-  const stored: Stored = { version: 1, accounts: [...accounts] }
-  await secrets.set(ACCOUNTS_KEY, JSON.stringify(stored))
-}
-
-export function owner(accounts: readonly Account[]): Account | undefined {
-  return accounts.find((a) => a.role === 'owner')
-}
-
-export function sources(accounts: readonly Account[]): Account[] {
-  return accounts.filter((a) => a.role === 'source')
-}
-
-/** Whether Classroom announcements can be read too. Accounts that turned Classroom on before Cairn read them have to be asked again. */
-export function readsAnnouncements(account: Account): boolean {
-  return account.scopes.includes('https://www.googleapis.com/auth/classroom.announcements.readonly')
-}
-
-/** Which features this account has granted Google permission for. Whether they are switched on is a separate, local choice. */
-export function featuresOf(account: Account): SourceFeatures {
-  const has = (scope: string) => account.scopes.includes(scope)
-  return {
-    mail: GOOGLE_SCOPES.mail.every(has),
-    // Accounts connected before the scope list was trimmed hold the older
-    // synonym for coursework; either one is enough to read submissions.
-    classroom:
-      has('https://www.googleapis.com/auth/classroom.courses.readonly') &&
-      (has('https://www.googleapis.com/auth/classroom.coursework.me.readonly') ||
-        has('https://www.googleapis.com/auth/classroom.student-submissions.me.readonly')),
-    files: has('https://www.googleapis.com/auth/classroom.courses.readonly') && has('https://www.googleapis.com/auth/drive.readonly'),
-  }
-}
-
-export function scopesFor(role: AccountRole, features: SourceFeatures, already: readonly string[] = []): string[] {
-  const wanted = new Set<string>([...already, ...GOOGLE_SCOPES.identity])
-  // The owner keeps the attachments, so it is the only one that needs Drive.
-  if (role === 'owner') for (const s of GOOGLE_SCOPES.media) wanted.add(s)
-  if (features.mail) for (const s of GOOGLE_SCOPES.mail) wanted.add(s)
-  if (features.classroom || features.files) for (const s of GOOGLE_SCOPES.classroom) wanted.add(s)
-  if (features.files) for (const s of GOOGLE_SCOPES.classroomFiles) wanted.add(s)
-  return [...wanted]
-}
+/** Where the older apps kept refresh tokens on the device. Cleared on first launch: the Worker holds them now. */
+export const LEGACY_ACCOUNTS_KEY = 'google-accounts'
 
 export class ConnectError extends Error {
   constructor(message: string) {
@@ -124,193 +33,76 @@ export class ConnectError extends Error {
   }
 }
 
-/**
- * Runs the Google consent flow and records the account.
- *
- * Reconnecting an account that is already known updates it in place, keyed
- * on Google's stable id rather than the address, so changing an email does
- * not silently create a second entry.
- */
-export async function connect(
-  platform: Platform,
-  options: { role: AccountRole; features?: SourceFeatures; expect?: GoogleIdentity },
-): Promise<Account[]> {
-  const existing = await loadAccounts(platform.secrets)
-  const already = options.expect ? (existing.find((a) => a.identity.sub === options.expect!.sub)?.scopes ?? []) : []
-  const scopes = scopesFor(options.role, options.features ?? { mail: false, classroom: false }, already)
+const WORKER_ERRORS: Record<string, string> = {
+  expired: 'That sign-in took too long. Try again.',
+  exchange_failed: 'Google did not finish the sign-in. Try again.',
+  no_identity: 'Google did not say which account that was. Try again.',
+  firebase_refused: 'Cairn could not sign in with that account. Try again in a minute.',
+  no_refresh_token: 'Google withheld the long-term permission Cairn needs. Try again and tick every box.',
+  unknown_user: 'Sign in on your phone first.',
+  google_error: 'Google refused the sign-in. Try again.',
+}
 
+/**
+ * Runs the Worker's consent flow in the browser and returns who it was.
+ *
+ * `link` joins the grant to the signed-in person (a college account, or more
+ * permission for one already connected) rather than signing in. `add` shows
+ * Google's account chooser even with a hint.
+ */
+export async function consentThroughWorker(
+  platform: Pick<Platform, 'authorize'>,
+  worker: WorkerClient,
+  options: { want: readonly Want[]; hint?: string; link?: boolean; add?: boolean },
+): Promise<{ uid: string; email: string; idToken?: string }> {
   const pkce = await createPkce(webCrypto)
   const state = randomState(webCrypto)
-
-  let redirectUri = ''
-  const redirect = await platform.authorize((uri) => {
-    redirectUri = uri
-    return authorizeUrl({
-      clientId: platform.googleClientId,
-      redirectUri: uri,
-      scopes,
-      challenge: pkce.challenge,
+  const ticket = options.link ? await worker.ticket() : undefined
+  const redirect = await platform.authorize((redirectUri) =>
+    worker.authUrl({
+      redirect: redirectUri,
       state,
-      // Consent is forced because Google withholds a refresh token on a
-      // repeat consent, and the connection would die at the first expiry.
-      // Adding another account also needs the account chooser, which a
-      // login hint would skip past.
-      prompt: options.expect ? 'consent' : 'select_account consent',
-      includeGrantedScopes: true,
-      ...(options.expect ? { loginHint: options.expect.email } : {}),
-    })
-  })
-
+      challenge: pkce.challenge,
+      want: options.want,
+      ...(options.hint ? { hint: options.hint } : {}),
+      ...(ticket ? { ticket } : {}),
+      ...(options.add ? { add: true } : {}),
+    }),
+  )
+  const error = /[?&]error=([^&#]+)/.exec(redirect)?.[1]
+  if (error && WORKER_ERRORS[error]) throw new ConnectError(WORKER_ERRORS[error]!)
   const code = readRedirect(redirect, state)
-  const tokens = await exchangeCode({ ...credentials(platform), redirectUri, code, verifier: pkce.verifier })
-  if (!tokens.idToken) throw new ConnectError('Google did not say which account that was')
-  if (!tokens.refreshToken) {
-    throw new ConnectError('Google withheld the long-term permission Cairn needs. Try connecting again.')
+  const result = await worker.exchange(code, pkce.verifier)
+  if (options.hint && result.email.toLowerCase() !== options.hint.toLowerCase()) {
+    throw new ConnectError(`That was ${result.email}, not ${options.hint}. Pick ${options.hint} when Google asks.`)
   }
-
-  const identity = readIdToken(tokens.idToken)
-  if (options.expect && identity.sub !== options.expect.sub) {
-    throw new ConnectError(`That is ${identity.email}, not ${options.expect.email}. Pick the other account.`)
-  }
-  // Signing in again as an account already connected for reading should not
-  // demote the owner or duplicate the entry.
-  const previous = existing.find((a) => a.identity.sub === identity.sub)
-  const role = previous?.role ?? options.role
-
-  const account: Account = { identity, role, scopes: tokens.scopes, refreshToken: tokens.refreshToken }
-  const accounts = previous
-    ? existing.map((a) => (a.identity.sub === identity.sub ? account : a))
-    : [...existing, account]
-
-  await save(platform.secrets, accounts)
-  forgetToken(identity.sub)
-  return accounts
+  return result
 }
 
-/** Forgets a source account. The owner can only be dropped by signing out. */
-export async function disconnect(platform: Platform, sub: string): Promise<Account[]> {
-  const existing = await loadAccounts(platform.secrets)
-  const going = existing.find((a) => a.identity.sub === sub)
-  if (going?.role === 'owner') {
-    throw new ConnectError('That account holds your notes. Sign out to disconnect it.')
-  }
-  const remaining = existing.filter((a) => a.identity.sub !== sub)
-  await save(platform.secrets, remaining)
-  forgetToken(sub)
-  return remaining
+export function owner(accounts: readonly WorkerAccount[]): WorkerAccount | undefined {
+  return accounts.find((a) => a.role === 'owner')
 }
 
-export async function forgetAllAccounts(platform: Platform): Promise<void> {
-  await platform.secrets.delete(ACCOUNTS_KEY)
-  tokens.clear()
+export function sources(accounts: readonly WorkerAccount[]): WorkerAccount[] {
+  return accounts.filter((a) => a.role === 'source')
 }
 
-const tokens = new Map<string, TokenSet>()
-
-/**
- * A usable access token for one account, refreshed when stale. Held per
- * account so a burst of calls costs one refresh rather than several.
- */
-export async function accessTokenFor(platform: Platform, account: Account): Promise<TokenSet> {
-  const held = tokens.get(account.identity.sub)
-  if (held && !isExpired(held, Date.now())) return held
-
-  const fresh = await refreshTokens({ ...credentials(platform), refreshToken: account.refreshToken })
-  tokens.set(account.identity.sub, fresh)
-
-  // Google can hand back a different refresh token; storing it keeps the
-  // next launch working.
-  if (fresh.refreshToken && fresh.refreshToken !== account.refreshToken) {
-    const all = await loadAccounts(platform.secrets)
-    await save(
-      platform.secrets,
-      all.map((a) => (a.identity.sub === account.identity.sub ? { ...a, refreshToken: fresh.refreshToken! } : a)),
-    )
-  }
-  return fresh
+export function accountsOf(doc: AccountsDoc | null | undefined): WorkerAccount[] {
+  return Array.isArray(doc?.accounts) ? doc.accounts.filter((a) => typeof a?.email === 'string') : []
 }
 
-function forgetToken(sub: string): void {
-  tokens.delete(sub)
+/** Whether Gmail or Classroom is being read for an account: granted, and chosen. */
+export function reading(account: WorkerAccount, what: 'mail' | 'classroom'): boolean {
+  return account.services.includes(what) && account.watch[what]
 }
 
-/**
- * One kind of access an account can have granted. Announcements are kept
- * apart from the rest of Classroom because accounts connected before Cairn
- * read them hold Classroom without them.
- */
-export type Service = 'mail' | 'classroom' | 'announcements' | 'files'
-
-export const SERVICE_NAMES: Record<Service, string> = {
-  mail: 'Gmail',
-  classroom: 'Classroom',
-  announcements: 'Classroom announcements',
-  files: 'Classroom files',
+/** Accounts whose Classroom files may be saved: granted Drive read access as well as Classroom. */
+export function fileReaders(accounts: readonly WorkerAccount[]): WorkerAccount[] {
+  return accounts.filter((a) => a.services.includes('files'))
 }
 
-/**
- * What a device says about one of its accounts in the cloud, so the other
- * device can offer to match it. No token, ever: each device runs its own
- * consent, because the phone's and the computer's Google clients differ and
- * a refresh token issued to one is useless to the other.
- */
-export interface AccountRecord {
-  sub: string
-  email: string
-  role: AccountRole
-  services: Service[]
-}
-
-/** The accounts document: each device's own list, written only by that device. */
-export type AccountsRegistry = Partial<Record<'phone' | 'desktop', { accounts: AccountRecord[]; updatedAt: number }>>
-
-export function servicesOf(account: Account): Service[] {
-  const features = featuresOf(account)
-  const out: Service[] = []
-  if (features.mail) out.push('mail')
-  if (features.classroom) out.push('classroom')
-  if (features.classroom && readsAnnouncements(account)) out.push('announcements')
-  if (features.files) out.push('files')
-  return out
-}
-
-export function accountRecords(accounts: readonly Account[]): AccountRecord[] {
-  return accounts.map((a) => ({ sub: a.identity.sub, email: a.identity.email, role: a.role, services: servicesOf(a) }))
-}
-
-/** Something another device can read that this one cannot, and how to put it right. */
-export interface AccountGap {
-  sub: string
-  email: string
-  role: AccountRole
-  /** Missing here. */
-  missing: Service[]
-  /** The account here, when it is connected but short of a permission. */
-  account?: Account
-  /** What to ask Google for: what is already granted here, and what is missing. */
-  features: SourceFeatures
-}
-
-/**
- * The accounts and permissions another device has that this one lacks.
- * `ignore` leaves out what this device has no use for — Classroom files on a
- * phone, which has nowhere to save them.
- */
-export function accountGaps(theirs: readonly AccountRecord[], mine: readonly Account[], options: { ignore?: readonly Service[] } = {}): AccountGap[] {
-  const ignore = new Set(options.ignore ?? [])
-  const gaps: AccountGap[] = []
-  for (const record of theirs) {
-    const local = mine.find((a) => a.identity.sub === record.sub)
-    const have = new Set(local ? servicesOf(local) : [])
-    const missing = record.services.filter((s) => !ignore.has(s) && !have.has(s))
-    // An account with nothing to read is only a sign-in; there is nothing to match.
-    if (missing.length === 0) continue
-    const features: SourceFeatures = {
-      mail: have.has('mail') || missing.includes('mail'),
-      classroom: have.has('classroom') || missing.some((s) => s === 'classroom' || s === 'announcements'),
-      ...(have.has('files') || missing.includes('files') ? { files: true } : {}),
-    }
-    gaps.push({ sub: record.sub, email: record.email, role: local?.role ?? record.role, missing, ...(local ? { account: local } : {}), features })
-  }
-  return gaps
+/** "Gmail and Classroom", "Classroom", "nothing yet": what an account is read for, in a line. */
+export function describeReading(account: WorkerAccount): string {
+  const parts = [reading(account, 'mail') ? 'Gmail' : '', reading(account, 'classroom') ? 'Classroom' : ''].filter(Boolean)
+  return parts.length ? parts.join(' and ') : 'nothing yet'
 }

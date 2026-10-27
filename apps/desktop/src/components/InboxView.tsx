@@ -1,6 +1,6 @@
 import { dueOf, inboxTaskId, isImportant, tagsOf, type InboxRecord, type SenderRule } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
-import { formatAgo, formatDue, readerStatus, SERVICE_NAMES, type AccountGap } from '@cairn/ui'
+import { formatAgo, formatDue, readerStatus } from '@cairn/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { useCairn } from '../app/context'
 import { useObserved } from '../app/hooks'
@@ -18,14 +18,15 @@ export function sender(from: string): string {
 }
 
 /**
- * Gmail, sorted — the same inbox the phone shows, from the same records.
+ * Gmail, sorted by Cairn's server — the same inbox the phone shows, from the
+ * same records.
  * Important collects what needs attention, folders the model made gather
  * what belongs together, and the rest waits under Everything else.
  */
 export function InboxView({ onSettings }: { onSettings: () => void }) {
   const inbox = useInbox()
   const toast = useToast()
-  const { reminders, accounts } = useCairn()
+  const { reminders } = useCairn()
   const tasks = useObserved(reminders, LIVE_TASKS)
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
   const [filter, setFilter] = useState<Filter>({ kind: 'important' })
@@ -42,7 +43,6 @@ export function InboxView({ onSettings }: { onSettings: () => void }) {
   const folders = inbox.folders.filter((f) => visible.some((r) => r.triage?.folder === f))
   const current = filter.kind === 'folder' && !folders.includes(filter.name) ? ({ kind: 'important' } as Filter) : filter
   const shown = current.kind === 'important' ? important : current.kind === 'rest' ? rest : visible.filter((r) => r.triage?.folder === current.name)
-  const gaps = inbox.gaps.filter((g) => g.missing.includes('mail'))
 
   const mark = (record: InboxRecord, rule: SenderRule) => {
     void inbox.mark(record, rule)
@@ -57,11 +57,11 @@ export function InboxView({ onSettings }: { onSettings: () => void }) {
       <h1 className="view-title">Inbox</h1>
       <span className="view-sub">{important.length ? `${important.length} important` : ''}</span>
       <span className="spacer" />
-      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh(true)} label="Check mail now" />}
+      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh()} label="Check mail now" />}
     </header>
   )
 
-  if (!inbox.signedIn || accounts.length === 0 || (inbox.mailAccounts.accounts.length === 0 && gaps.length === 0)) {
+  if (!inbox.signedIn || inbox.mailAccounts.accounts.length === 0) {
     return (
       <section className="view" aria-label="Inbox">
         {head}
@@ -71,12 +71,14 @@ export function InboxView({ onSettings }: { onSettings: () => void }) {
           </span>
           <p>
             {!inbox.signedIn
-              ? 'Sign in with the Google account your phone uses, and the inbox your phone sorts shows here too.'
-              : 'Turn on Gmail for an account in Settings. Classroom posts have their own tab.'}
+              ? 'Sign in with the Google account you set Cairn up with on your phone, and your sorted mail shows here too.'
+              : 'Choose Gmail for an account in Cairn on your phone, and new mail shows here. Classroom posts have their own tab.'}
           </p>
-          <button type="button" className="accent-button" onClick={onSettings}>
-            Open Settings
-          </button>
+          {!inbox.signedIn && (
+            <button type="button" className="accent-button" onClick={onSettings}>
+              Open Settings
+            </button>
+          )}
         </div>
       </section>
     )
@@ -100,19 +102,16 @@ export function InboxView({ onSettings }: { onSettings: () => void }) {
         {rest.length > 0 && <Chip label="Everything else" count={rest.length} on={current.kind === 'rest'} onClick={() => setFilter({ kind: 'rest' })} />}
       </div>
 
-      <GapNotices gaps={gaps} what="mail" />
+      <PausedNotice />
       {inbox.error && <p className="notice danger">{inbox.error}</p>}
       {inbox.ai.on && inbox.ai.error && <p className="notice">AI sorting paused: {inbox.ai.error} New mail is still checked for deadlines.</p>}
       {!inbox.ai.on && (
-        <div className="notice">
+        <p className="notice">
           <span className="notice-text">
             <strong>Sort mail into folders with AI</strong>
-            <span>Add your NVIDIA API key in Settings — once, on either device — and each new email is read to pick out what matters.</span>
+            <span>Add your NVIDIA key in Cairn on your phone, and each new email is read to pick out what matters.</span>
           </span>
-          <button type="button" className="button" onClick={onSettings}>
-            Settings
-          </button>
-        </div>
+        </p>
       )}
 
       {shown.length === 0 ? (
@@ -142,7 +141,7 @@ export function InboxView({ onSettings }: { onSettings: () => void }) {
         </ul>
       )}
       <p className="view-status">
-        {readerStatus(inbox, 'desktop', now)}
+        {readerStatus(inbox, now)}
         {inbox.ai.model ? ` · sorted by ${inbox.ai.model}` : ''}
       </p>
     </section>
@@ -172,38 +171,20 @@ export function AccountChips({ chips, current, onPick }: { chips: { all: boolean
   )
 }
 
-/** What the phone reads that this computer cannot yet, with the way to put it right: Google asks this computer separately. */
-export function GapNotices({ gaps, what }: { gaps: AccountGap[]; what: string }) {
-  const { matchAccount } = useCairn()
-  const toast = useToast()
-  const [busy, setBusy] = useState<string | null>(null)
-  const connect = async (gap: AccountGap) => {
-    setBusy(gap.sub)
-    try {
-      await matchAccount(gap)
-      toast({ message: `${gap.email} now matches your phone` })
-    } catch (error) {
-      toast({ message: error instanceof Error ? error.message : String(error), tone: 'error' })
-    } finally {
-      setBusy(null)
-    }
-  }
+/** When Cairn's server has not looked for a while: everything shown may be out of date. */
+export function PausedNotice() {
+  const inbox = useInbox()
+  if (!inbox.paused || inbox.checkedAt === null) return null
   return (
-    <>
-      {gaps.map((gap) => (
-        <div key={gap.sub} className="notice accent">
-          <span className="notice-text">
-            <strong>Connect {gap.email} to match your phone</strong>
-            <span>
-              Your phone reads {gap.missing.map((s) => SERVICE_NAMES[s]).join(' and ')} for it. Until this computer can too, the phone reads your {what}.
-            </span>
-          </span>
-          <button type="button" className="button" disabled={busy !== null} onClick={() => void connect(gap)}>
-            {busy === gap.sub ? 'Waiting for your browser…' : 'Connect…'}
-          </button>
-        </div>
-      ))}
-    </>
+    <div className="notice danger" role="status">
+      <span className="notice-text">
+        <strong>{readerStatus(inbox, Date.now())}</strong>
+        <span>Cairn's server has not checked your mail lately. Sync now asks it to look; if that does not help, open Cairn on your phone.</span>
+      </span>
+      <button type="button" className="button" disabled={inbox.refreshing} onClick={() => void inbox.refresh()}>
+        Sync now
+      </button>
+    </div>
   )
 }
 

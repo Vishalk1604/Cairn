@@ -190,27 +190,29 @@ describe('the shared inbox', () => {
 })
 
 describe('shared settings', () => {
-  it('lets the owner keep the accounts list, the reader claim and the inbox rules', async () => {
+  it('lets the owner keep the accounts list, the Worker\'s last check and the inbox rules', async () => {
     await assertSucceeds(
-      setDoc(settingAt(mine(), ME, 'accounts'), { phone: { accounts: [{ sub: 's', email: 'me@gmail.com', role: 'owner', services: ['mail'] }], updatedAt: 1 } }),
+      setDoc(settingAt(mine(), ME, 'accounts'), {
+        accounts: [{ email: 'me@gmail.com', role: 'owner', services: ['drive', 'mail'], watch: { mail: true, classroom: false } }],
+        ai: { on: true, preferred: 'GPT-OSS 20B' },
+        updatedAt: 1,
+      }),
     )
-    await assertSucceeds(setDoc(settingAt(mine(), ME, 'reader'), { lease: { deviceId: 'pc', kind: 'desktop', heartbeatAt: 1 }, cursors: {} }))
-    await assertSucceeds(setDoc(settingAt(mine(), ME, 'inbox'), { senders: { 'a@b.com': 'important' }, autoTasks: true, updatedAt: 1 }))
+    await assertSucceeds(setDoc(settingAt(mine(), ME, 'reader'), { checkedAt: 1, accounts: { 'me@gmail.com': { checkedAt: 1 } }, cursors: { 'me@gmail.com': { mail: '123' } } }))
+    await assertSucceeds(setDoc(settingAt(mine(), ME, 'inbox'), { senders: { 'a@b.com': 'important' }, autoTasks: true, timeZone: 'Asia/Kolkata', updatedAt: 1 }))
     await assertSucceeds(getDoc(settingAt(mine(), ME, 'reader')))
   })
 
-  it('keeps the AI key for its owner alone, and only a key', async () => {
-    await assertSucceeds(setDoc(settingAt(mine(), ME, 'ai'), { key: FAKE_KEY, updatedAt: 1 }))
-    await assertSucceeds(getDoc(settingAt(mine(), ME, 'ai')))
-    await assertFails(getDoc(settingAt(theirs(), ME, 'ai')))
-    await assertFails(setDoc(settingAt(theirs(), ME, 'ai'), { key: FAKE_KEY, updatedAt: 1 }))
-    await assertFails(setDoc(settingAt(mine(), ME, 'ai'), { key: 'not a key', updatedAt: 1 }))
-    await assertFails(setDoc(settingAt(mine(), ME, 'ai'), { updatedAt: 1 }))
-    await assertSucceeds(deleteDoc(settingAt(mine(), ME, 'ai')))
+  it('never keeps the AI key in Firestore', async () => {
+    await assertFails(setDoc(settingAt(mine(), ME, 'ai'), { key: FAKE_KEY, updatedAt: 1 }))
+    await assertFails(getDoc(settingAt(mine(), ME, 'ai')))
+    await assertFails(setDoc(settingAt(mine(), ME, 'inbox'), { key: FAKE_KEY }))
+    await assertFails(setDoc(settingAt(mine(), ME, 'accounts'), { apiKey: FAKE_KEY }))
   })
 
   it('never takes a Google token', async () => {
     await assertFails(setDoc(settingAt(mine(), ME, 'accounts'), { refreshToken: 'abc' }))
+    await assertFails(setDoc(settingAt(mine(), ME, 'reader'), { accessToken: 'abc' }))
   })
 
   it('takes no settings document it does not know', async () => {

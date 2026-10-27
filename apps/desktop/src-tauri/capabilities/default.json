@@ -21,10 +21,6 @@
     "autostart:allow-is-enabled",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
-    "core:window:allow-is-maximized",
-    {
-      "identifier": "http:default",
-      "allow": [{ "url": "https://integrate.api.nvidia.com/*" }, { "url": "https://*.api.nvidia.com/*" }]
-    }
+    "core:window:allow-is-maximized"
   ]
 }

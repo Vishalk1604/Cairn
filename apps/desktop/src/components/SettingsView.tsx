@@ -1,16 +1,14 @@
-import { modelsFor, type NoteQuery } from '@cairn/sync'
-import { featuresOf, owner, readerStatus, readingOn, readsAnnouncements, recycleBin, SERVICE_NAMES, sources, type Account, type AccountGap, type Feature } from '@cairn/ui'
+import type { NoteQuery } from '@cairn/sync'
+import { describeReading, readerStatus, recycleBin, type AiStatus, type WorkerAccount } from '@cairn/ui'
 import { useEffect, useState } from 'react'
 import { useClassroomFiles } from '../app/classroomFiles'
 import { useCairn } from '../app/context'
-import { usePaused } from '../app/folders'
 import { useObserved } from '../app/hooks'
 import { useInbox } from '../app/inbox'
 import { useMediaFolder } from '../app/media'
 import { useToast } from '../app/toast'
 import type { PermissionState } from '../platform'
-import { AccountsDialog } from './AccountsDialog'
-import { AiKeyDialog, ProfileDialog } from './AiDialogs'
+import { ProfileDialog } from './ProfileDialog'
 import { LinkRow, Row, Section, Switch } from './SettingsParts'
 import { SyncButton } from './SyncButton'
 
@@ -19,8 +17,8 @@ const WITH_DELETED: NoteQuery = { includeDeleted: true }
 
 /**
  * Everything that is set once and then left alone, grouped the way it is
- * looked for: who Cairn reads as, how mail is sorted, Classroom, notes,
- * this computer.
+ * looked for: who this computer is signed in as, what the phone set up, the
+ * inbox, Classroom, notes, this computer.
  */
 export function SettingsView({ onBin, onClassroomFiles }: { onBin: () => void; onClassroomFiles: () => void }) {
   return (
@@ -28,7 +26,8 @@ export function SettingsView({ onBin, onClassroomFiles }: { onBin: () => void; o
       <header className="view-head">
         <h1 className="view-title">Settings</h1>
       </header>
-      <AccountsSection />
+      <AccountSection />
+      <PhoneSection />
       <InboxSection />
       <ClassroomSection onFiles={onClassroomFiles} />
       <NotesSection onBin={onBin} />
@@ -39,38 +38,24 @@ export function SettingsView({ onBin, onClassroomFiles }: { onBin: () => void; o
   )
 }
 
-/** Runs an action with the row busy, and says what went wrong rather than failing silently. */
-function useRun(): { busy: string | null; run: (key: string, work: () => Promise<void>) => Promise<void> } {
-  const toast = useToast()
-  const [busy, setBusy] = useState<string | null>(null)
-  const run = async (key: string, work: () => Promise<void>) => {
-    setBusy(key)
-    try {
-      await work()
-    } catch (error) {
-      toast({ message: error instanceof Error ? error.message : String(error), tone: 'error' })
-    } finally {
-      setBusy(null)
-    }
-  }
-  return { busy, run }
+/** Shown on what only the phone changes. */
+function Managed() {
+  return <span className="managed">Managed on your phone</span>
 }
 
-function AccountsSection() {
-  const cairn = useCairn()
-  const { auth, accounts, signIn, signOut, regrant, matchAccount, disconnectSource, sync } = cairn
+/** The one sign-in this computer has. */
+function AccountSection() {
+  const { auth, email, signIn, signOut, sync } = useCairn()
   const inbox = useInbox()
-  const { paused, setPaused } = usePaused()
-  const { busy, run } = useRun()
-  const [adding, setAdding] = useState(false)
-  const holder = owner(accounts)
-
-  if (!holder) {
+  if (auth.status !== 'synced' || !email) {
     return (
-      <Section title="Accounts & access" note="Signed in, notes and tasks sync with your phone, and so do the inbox and Classroom. Signed out, everything stays on this computer.">
+      <Section
+        title="Account"
+        note="Sign in with the Google account you set Cairn up with on your phone. Notes, tasks, the inbox and Classroom then show here too. Signed out, everything stays on this computer."
+      >
         <Row
           title={auth.status === 'error' ? 'Not syncing' : 'On this computer only'}
-          detail={auth.status === 'error' ? auth.message : auth.status === 'connecting' ? 'Finish signing in in your browser…' : 'Sign in with the Google account your phone uses.'}
+          detail={auth.status === 'error' ? auth.message : auth.status === 'connecting' ? 'Finish signing in in your browser…' : 'Google asks once, in your browser.'}
           tone={auth.status === 'error' ? 'danger' : undefined}
         >
           <button type="button" className="accent-button" disabled={auth.status === 'connecting'} onClick={() => void signIn()}>
@@ -80,150 +65,68 @@ function AccountsSection() {
       </Section>
     )
   }
-
-  /**
-   * Switching off is a choice shared with the phone and takes effect at
-   * once. Switching on only goes to Google when this computer lacks the
-   * permission, and reading then starts from that moment.
-   */
-  const toggle = (account: Account, feature: Feature) => {
-    const sub = account.identity.sub
-    if (readingOn(account, feature, paused)) {
-      void setPaused(feature, sub, true)
-      return
-    }
-    void run(`${sub}:${feature}`, async () => {
-      if (!featuresOf(account)[feature]) await regrant(account, { ...featuresOf(account), [feature]: true })
-      await inbox.startFresh(sub, feature)
-      await setPaused(feature, sub, false)
-    })
-  }
-
-  const syncAll = () => {
-    void sync.run()
-    void inbox.refresh(true)
-  }
-
   return (
-    <Section
-      title="Accounts & access"
-      note={`${holder.identity.email} holds your notes and tasks. Other accounts, such as a university one, are only read. Each device asks Google for itself, so this computer and your phone connect accounts separately.`}
-    >
-      {[holder, ...sources(accounts)].map((account) => (
-        <AccountRows
-          key={account.identity.sub}
-          account={account}
-          status={
-            account.role === 'owner'
-              ? auth.status === 'synced'
-                ? 'Holds your notes · syncing'
-                : auth.status === 'error'
-                  ? auth.message
-                  : 'Connecting…'
-              : 'Read only'
-          }
-          danger={account.role === 'owner' && auth.status === 'error'}
-          syncing={account.role === 'owner' ? sync.busy || inbox.refreshing : inbox.refreshing}
-          syncedAt={account.role === 'owner' ? sync.at : inbox.checkedAt}
-          onSync={account.role === 'owner' ? syncAll : () => void inbox.refresh(true)}
-          paused={paused}
-          busy={busy}
-          onToggle={(feature) => toggle(account, feature)}
-          onAnnouncements={() => void run(`${account.identity.sub}:announcements`, () => regrant(account, { ...featuresOf(account), classroom: true }))}
-          onRemove={account.role === 'source' ? () => void run(`x${account.identity.sub}`, () => disconnectSource(account.identity.sub)) : undefined}
+    <Section title="Account">
+      <Row title={email} detail="Holds your notes and tasks · syncing" head>
+        <SyncButton
+          busy={sync.busy || inbox.refreshing}
+          at={sync.at}
+          onClick={() => {
+            void sync.run()
+            void inbox.refresh()
+          }}
+          label="Sync now"
         />
-      ))}
-      {inbox.gaps.map((gap) => (
-        <GapRow key={gap.sub} gap={gap} busy={busy === `gap:${gap.sub}`} onConnect={() => void run(`gap:${gap.sub}`, () => matchAccount(gap))} />
-      ))}
-      <Row title="Another account" detail="A university or work account to read Gmail and Classroom from.">
-        <button type="button" className="button" onClick={() => setAdding(true)}>
-          Connect…
-        </button>
       </Row>
-      <Row title="Sign out" detail="Notes stay on this computer; they just stop syncing.">
+      <Row title="Sign out" detail="Notes stay on this computer; they just stop syncing. Your phone and Cairn's server carry on.">
         <button type="button" className="button quiet-button" onClick={() => void signOut()}>
           Sign out
         </button>
       </Row>
-      {adding && <AccountsDialog adding onClose={() => setAdding(false)} />}
     </Section>
   )
 }
 
-function AccountRows({
-  account,
-  status,
-  danger,
-  syncing,
-  syncedAt,
-  onSync,
-  paused,
-  busy,
-  onToggle,
-  onAnnouncements,
-  onRemove,
-}: {
-  account: Account
-  status: string
-  danger: boolean
-  syncing: boolean
-  syncedAt: number | null
-  onSync: () => void
-  paused: Record<Feature, string[]>
-  busy: string | null
-  onToggle: (feature: Feature) => void
-  onAnnouncements: () => void
-  onRemove?: () => void
-}) {
-  const sub = account.identity.sub
-  const files = featuresOf(account).files
+/**
+ * What the phone set up — which accounts are read, and AI sorting — shown
+ * here and changed there, so Cairn is set up in one place.
+ */
+function PhoneSection() {
+  const { auth } = useCairn()
+  const inbox = useInbox()
+  if (auth.status !== 'synced') return null
   return (
-    <>
-      <Row
-        title={
-          <>
-            {account.identity.email} {account.identity.domain && <span className="badge">{account.identity.domain}</span>}
-          </>
-        }
-        detail={`${status}${files ? ' · saves class files here' : ''}`}
-        tone={danger ? 'danger' : undefined}
-        head
-      >
-        <SyncButton busy={syncing} at={syncedAt} onClick={onSync} label={`Sync ${account.identity.email}`} />
-        {onRemove && (
-          <button type="button" className="button quiet-button" disabled={busy !== null} onClick={onRemove}>
-            Remove
-          </button>
-        )}
+    <Section
+      title="Accounts & AI"
+      note="Cairn's server reads these accounts every ten minutes, sorts new mail with your NVIDIA key and writes what it finds for this computer and your phone. Add accounts, choose what is read and set up AI sorting in Cairn on your phone."
+    >
+      {inbox.accounts.length === 0 && <Row title="No accounts yet" detail="Set Cairn up on your phone: it walks you through it." />}
+      {inbox.accounts.map((account) => (
+        <AccountRow key={account.email} account={account} />
+      ))}
+      <Row title="AI sorting" detail={aiDetail(inbox.ai)} tone={inbox.ai.on && inbox.ai.error ? 'danger' : undefined}>
+        <Managed />
       </Row>
-      <Row title="Read Gmail" detail="New mail, sorted into the Inbox">
-        <Switch on={readingOn(account, 'mail', paused)} disabled={busy === `${sub}:mail`} label={`Read Gmail for ${account.identity.email}`} onChange={() => onToggle('mail')} />
+      <Row title="Mail checks" detail={readerStatus(inbox, Date.now())} tone={inbox.paused ? 'danger' : undefined}>
+        <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh()} label="Check now" caption={false} />
       </Row>
-      <Row title="Read Classroom" detail="New coursework and announcements, in the Classroom tab">
-        <Switch on={readingOn(account, 'classroom', paused)} disabled={busy === `${sub}:classroom`} label={`Read Classroom for ${account.identity.email}`} onChange={() => onToggle('classroom')} />
-      </Row>
-      {readingOn(account, 'classroom', paused) && !readsAnnouncements(account) && (
-        <Row title="Read announcements too" detail="Classroom was switched on before Cairn read announcements. Google will ask once more.">
-          <button type="button" className="button" disabled={busy !== null} onClick={onAnnouncements}>
-            Allow…
-          </button>
-        </Row>
-      )}
-    </>
+    </Section>
   )
 }
 
-/** Something the phone reads that this computer cannot yet. */
-function GapRow({ gap, busy, onConnect }: { gap: AccountGap; busy: boolean; onConnect: () => void }) {
+function aiDetail(ai: AiStatus): string {
+  if (!ai.on) return 'Off. New mail is checked for deadlines by fixed rules.'
+  if (ai.error) return `On, but the last try failed: ${ai.error}`
+  return ai.model ? `On · last sorted by ${ai.model}` : `On · ${ai.preferred ?? 'GPT-OSS'} sorts new mail`
+}
+
+function AccountRow({ account }: { account: WorkerAccount }) {
+  const detail = [account.role === 'owner' ? 'Holds your notes' : 'Read only', `reads ${describeReading(account)}`, account.services.includes('files') ? 'class files allowed' : '']
+    .filter(Boolean)
+    .join(' · ')
   return (
-    <Row
-      title={`Connect ${gap.email} to match your phone`}
-      detail={`Your phone has ${gap.missing.map((s) => SERVICE_NAMES[s]).join(' and ')} for it. Google asks this computer separately; until then the phone does the reading.`}
-    >
-      <button type="button" className="accent-button" disabled={busy} onClick={onConnect}>
-        {busy ? 'Waiting for your browser…' : 'Connect…'}
-      </button>
+    <Row title={account.email} detail={account.problem ?? detail} tone={account.problem ? 'danger' : undefined}>
+      <Managed />
     </Row>
   )
 }
@@ -232,63 +135,22 @@ function InboxSection() {
   const { auth } = useCairn()
   const inbox = useInbox()
   const toast = useToast()
-  const { busy, run } = useRun()
-  const [keyDialog, setKeyDialog] = useState(false)
   const [profileDialog, setProfileDialog] = useState(false)
-  const signedIn = auth.status === 'synced'
-
+  if (auth.status !== 'synced') return null
   return (
-    <Section
-      title="Inbox & AI"
-      note="With a key, the device reading your mail sends the text of each new email and Classroom post to NVIDIA's AI service, which picks out what matters, files it into folders, tags it and reads off any deadline. The key is kept in your Cairn account, so your phone uses it too."
-    >
-      {signedIn && (
-        <Row title="Who reads your mail" detail={`${readerStatus(inbox, 'desktop', Date.now())}. This computer reads whenever it is on and has the same access as your phone.`}>
-          <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh(true)} label="Check now" />
-        </Row>
-      )}
+    <Section title="Inbox" note="What the AI is told matters to you. It reads every new email and Classroom post with this in mind.">
       <Row title="What matters to you" detail={inbox.profile.length > 160 ? `${inbox.profile.slice(0, 157)}…` : inbox.profile}>
         <button type="button" className="button" onClick={() => setProfileDialog(true)}>
           Edit…
         </button>
       </Row>
-      {inbox.ai.on ? (
-        <Row
-          title="AI sorting is on"
-          detail={inbox.ai.error ?? (inbox.ai.model ? `Last sorted by ${inbox.ai.model}` : `Uses ${inbox.ai.preferred ?? 'GPT-OSS'} from the next mail that arrives`)}
-          tone={inbox.ai.error ? 'danger' : undefined}
-        >
-          <button type="button" className="button" onClick={() => setKeyDialog(true)}>
-            Change key
-          </button>
-          <button type="button" className="button quiet-button" disabled={busy === 'ai'} onClick={() => void run('ai', () => inbox.setAiSetup(null))}>
-            Remove
-          </button>
-        </Row>
-      ) : (
-        <Row title="Add an NVIDIA API key" detail="Free from NVIDIA. Paste the code from their GPT-OSS page and Cairn finds the key in it. Added on your phone, it shows here by itself.">
-          <button type="button" className="accent-button" onClick={() => setKeyDialog(true)}>
-            Add key…
-          </button>
-        </Row>
-      )}
-      {keyDialog && (
-        <AiKeyDialog
-          onClose={() => setKeyDialog(false)}
-          onSave={async (setup, model) => {
-            await inbox.setAiSetup(setup)
-            const preferred = modelsFor(setup)[0]?.label ?? model
-            toast({ message: model === preferred ? `Key works. Mail will be sorted by ${model}.` : `Key works. ${preferred} is busy, so ${model} will sort mail for now.` })
-          }}
-        />
-      )}
       {profileDialog && (
         <ProfileDialog
           profile={inbox.profile}
           onClose={() => setProfileDialog(false)}
           onSave={(text) => {
             void inbox.setProfile(text)
-            toast({ message: 'Saved. New mail is read with it from now on, here and on your phone.' })
+            toast({ message: 'Saved. New mail is read with it from now on.' })
           }}
         />
       )}
@@ -305,7 +167,7 @@ function ClassroomSection({ onFiles }: { onFiles: () => void }) {
     <Section title="Classroom">
       <Row
         title="Automatically add tasks"
-        detail="New coursework becomes a task at its due date and ticks itself off when handed in. Announcements become tasks at any date they give. On your phone too."
+        detail="New coursework becomes a task at its due date and ticks itself off when handed in. Announcements become tasks at any date they give. Shared with your phone."
       >
         <Switch on={inbox.autoTasks} disabled={auth.status !== 'synced'} label="Automatically add tasks" onChange={(on) => void inbox.setAutoTasks(on)} />
       </Row>
@@ -413,7 +275,7 @@ function SystemSection() {
         title="Notifications"
         detail={
           permission === 'granted'
-            ? 'On. Cairn alerts you when things are due, and when important mail arrives.'
+            ? 'On. Cairn alerts you when things are due, and when new coursework or important mail arrives while it runs.'
             : permission === 'denied'
               ? 'Blocked. Allow them in your system settings; your lists still work.'
               : 'Off, so nothing alerts you when it is due.'
@@ -427,7 +289,7 @@ function SystemSection() {
         )}
       </Row>
       {platform.autostart && autostart !== null && (
-        <Row title="Start with Windows" detail="Opens quietly as the widget when you log in, so mail keeps being read.">
+        <Row title="Start with Windows" detail="Opens quietly as the widget when you log in, so reminders keep firing.">
           <Switch on={autostart} label="Start with Windows" onChange={async (next) => setAutostart(await platform.autostart!.set(next))} />
         </Row>
       )}

@@ -1,6 +1,6 @@
 import { attachmentFileName, type Attachment } from '@cairn/core'
-import { driveDownload, GOOGLE_SCOPES, GoogleApiError, type NoteQuery } from '@cairn/sync'
-import { accessTokenFor, owner, planMediaSync, type LocalMediaFile } from '@cairn/ui'
+import { driveDownload, GoogleApiError, WorkerError, type NoteQuery } from '@cairn/sync'
+import { planMediaSync, type LocalMediaFile } from '@cairn/ui'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useCairn } from './context'
 import { useObserved } from './hooks'
@@ -72,7 +72,7 @@ export function useMediaUrl(attachment: Attachment | undefined): string | null {
  * slow start can never look like every note was emptied.
  */
 export function MediaProvider({ children }: { children: ReactNode }) {
-  const { platform, notes, accounts, auth } = useCairn()
+  const { platform, notes, auth, email, worker } = useCairn()
   const media = platform.media
   const all = useObserved(notes, EVERYTHING)
   const [fallback, setFallback] = useState<string | null>(null)
@@ -88,8 +88,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
   const again = useRef(false)
 
   const folder = chosen || fallback
-  const holder = owner(accounts)
-  const signedIn = auth.status === 'synced' && holder !== undefined
+  const signedIn = auth.status === 'synced' && email !== null
 
   useEffect(() => {
     if (!media) return
@@ -139,22 +138,19 @@ export function MediaProvider({ children }: { children: ReactNode }) {
         do {
           again.current = false
           const files = await look(folder)
-          if (!signedIn || !holder) break
+          if (!signedIn || !email) break
           await notes.serverSynced?.()
           const plan = planMediaSync(await notes.list({ includeDeleted: true }), files)
           for (const name of plan.remove) {
             await media.remove(folder, name)
             forget(name)
           }
-          if (plan.download.length && !GOOGLE_SCOPES.media.every((s) => holder.scopes.includes(s))) {
-            setError('Cairn was not allowed into your Drive when you signed in. Sign out and sign in again, and tick the Drive box.')
-            break
-          }
           let failed = 0
           let why: unknown = null
           if (plan.download.length) {
             setFetching(plan.download.length)
-            const { accessToken } = await accessTokenFor(platform, holder)
+            // A token for Cairn's own Drive files and nothing else, from the Worker.
+            const { accessToken } = await worker.token(email, 'drive')
             await eachLimit(plan.download, AT_ONCE, async (a) => {
               try {
                 const bytes = await driveDownload(accessToken, a.driveFileId!)
@@ -175,7 +171,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
           if (plan.remove.length || plan.download.length) await look(folder)
         } while (again.current)
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(e instanceof WorkerError && e.needsConsent ? 'Cairn was not allowed into your Drive. Sign out and sign in again, and tick the Drive box.' : e instanceof Error ? e.message : String(e))
       } finally {
         running.current = false
         setFetching(0)
@@ -183,7 +179,7 @@ export function MediaProvider({ children }: { children: ReactNode }) {
     }
     const timer = setTimeout(() => void pass(), SETTLE_MS)
     return () => clearTimeout(timer)
-  }, [media, folder, all, signedIn, holder, notes, platform, look, forget, retry])
+  }, [media, folder, all, signedIn, email, worker, notes, look, forget, retry])
 
   const urlFor = useCallback(
     (a: Attachment): Promise<string | null> => {

@@ -1,6 +1,6 @@
-import { TokenError } from '@cairn/auth'
 import type { Entity } from '@cairn/core'
 import {
+  currentUser,
   openLocalRepositories,
   openSyncedRepositories,
   settled,
@@ -9,21 +9,13 @@ import {
   type NoteRepository,
   type ReminderRepository,
   type Repository,
+  type Want,
 } from '@cairn/sync'
-import {
-  accessTokenFor,
-  connect,
-  disconnect,
-  forgetAllAccounts,
-  loadAccounts,
-  owner,
-  type Account,
-  type AccountGap,
-  type SourceFeatures,
-} from '@cairn/ui'
+import { consentThroughWorker, LEGACY_ACCOUNTS_KEY } from '@cairn/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { DesktopPlatform } from '../platform'
 import { CairnContext, type Cairn } from './context'
+import { worker } from './worker'
 
 export type AuthState =
   | { status: 'loading' }
@@ -40,10 +32,25 @@ interface Store {
   close?: () => void
 }
 
-export function CairnProvider({ platform, children }: { platform: DesktopPlatform; children: ReactNode }) {
+/** Shown in a browser with ?preview: signed in as a stand-in, with nothing leaving the page. See preview.ts. */
+export interface Preview {
+  email: string
+  seed?(store: { reminders: ReminderRepository; notes: NoteRepository }): Promise<void>
+}
+
+/**
+ * Who this computer is signed in as, and the store that follows from it.
+ *
+ * The computer has one Google sign-in: the account the phone set Cairn up
+ * with. It runs through Cairn's Worker, which keeps the Google grant; this
+ * computer keeps only its Firebase session, which Firebase renews by itself
+ * across launches. Everything else — the inbox, the accounts, AI sorting —
+ * is set up on the phone and shown here from Firestore.
+ */
+export function CairnProvider({ platform, preview, children }: { platform: DesktopPlatform; preview?: Preview; children: ReactNode }) {
   const [store, setStore] = useState<Store | null>(null)
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const [email, setEmail] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState<number | null>(null)
   // Kept so switching to the synced store can carry local work up with it.
@@ -61,20 +68,12 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
     return opened
   }, [platform])
 
-  /** Brings up the synced store for whichever account owns the data. */
+  /** Brings up the synced store for the signed-in person. */
   const startSyncing = useCallback(
-    async (all: Account[]) => {
-      const holder = owner(all)
-      if (!holder) {
-        setStore(await openLocal())
-        setAuth({ status: 'local' })
-        return
-      }
+    async (uid: string, address: string | null) => {
       setAuth({ status: 'connecting' })
+      setEmail(address)
       try {
-        const tokens = await accessTokenFor(platform, holder)
-        if (!tokens.idToken) throw new Error('Google did not confirm who you are')
-        const uid = await signInToFirebase(tokens.idToken)
         const synced = await openSyncedRepositories(uid, (error) => console.error('Sync problem', error))
         await carryLocalWorkUp(platform, uid, local.current, synced)
         // Notes thirty days in the recycle bin are deleted for good, from the
@@ -87,15 +86,6 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
         setStore({ userId: uid, reminders: synced.reminders, notes: synced.notes, close: synced.close })
         setAuth({ status: 'synced' })
       } catch (error) {
-        // A dead refresh token is the one case where the stored account is
-        // worthless; anything else is worth keeping and retrying later.
-        if (error instanceof TokenError && error.needsReconsent) {
-          await forgetAllAccounts(platform)
-          setAccounts([])
-          setStore(await openLocal())
-          setAuth({ status: 'error', message: 'Google signed Cairn out. Sign in again to resume syncing.' })
-          return
-        }
         setStore(await openLocal())
         setAuth({ status: 'error', message: message(error) })
       }
@@ -111,58 +101,40 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
       const opened = await openLocal()
       if (cancelled) return
       setStore(opened)
-
-      const saved = await loadAccounts(platform.secrets)
+      if (preview) {
+        await preview.seed?.(opened)
+        setEmail(preview.email)
+        setStore({ ...opened, userId: 'preview' })
+        setAuth({ status: 'synced' })
+        return
+      }
+      // Older versions kept Google refresh tokens here; the Worker holds them now.
+      await platform.secrets.delete(LEGACY_ACCOUNTS_KEY).catch(() => {})
+      const user = await currentUser()
       if (cancelled) return
-      setAccounts(saved)
-      if (owner(saved)) await startSyncing(saved)
+      if (user) await startSyncing(user.uid, user.email)
       else setAuth({ status: 'local' })
     })()
     return () => {
       cancelled = true
     }
-  }, [platform, openLocal, startSyncing])
+  }, [platform, preview, openLocal, startSyncing])
 
   const signIn = useCallback(async () => {
     setAuth({ status: 'connecting' })
     try {
-      const all = await connect(platform, { role: 'owner' })
-      setAccounts(all)
-      await startSyncing(all)
+      const result = await consentThroughWorker(platform, worker, { want: ['drive'] })
+      if (!result.idToken) throw new Error('The sign-in did not say who you are. Try again.')
+      const uid = await signInToFirebase(result.idToken)
+      await startSyncing(uid, result.email)
     } catch (error) {
       setAuth({ status: 'error', message: message(error) })
     }
   }, [platform, startSyncing])
 
-  /** Adds another Google account to read Gmail and Classroom from. */
-  const connectSource = useCallback(
-    async (features: SourceFeatures) => {
-      const all = await connect(platform, { role: 'source', features })
-      setAccounts(all)
-    },
-    [platform],
-  )
-
-  /** Asks an account already connected for one more permission. */
-  const regrant = useCallback(
-    async (account: Account, features: SourceFeatures) => {
-      const all = await connect(platform, { role: account.role, features, expect: account.identity })
-      setAccounts(all)
-    },
-    [platform],
-  )
-
-  const disconnectSource = useCallback(
-    async (sub: string) => {
-      setAccounts(await disconnect(platform, sub))
-    },
-    [platform],
-  )
-
-  const matchAccount = useCallback(
-    async (gap: AccountGap) => {
-      const expect = gap.account?.identity ?? { sub: gap.sub, email: gap.email, emailVerified: true }
-      setAccounts(await connect(platform, { role: gap.role, features: gap.features, expect }))
+  const grant = useCallback(
+    async (account: string, want: readonly Want[]) => {
+      await consentThroughWorker(platform, worker, { want, hint: account, link: true })
     },
     [platform],
   )
@@ -176,45 +148,44 @@ export function CairnProvider({ platform, children }: { platform: DesktopPlatfor
     if (syncing) return
     setSyncing(true)
     try {
-      if (auth.status === 'error') await startSyncing(accounts)
-      else await settled()
+      if (auth.status === 'error') {
+        const user = await currentUser()
+        if (user) await startSyncing(user.uid, user.email)
+      } else await settled()
       setSyncedAt(Date.now())
     } catch (error) {
       setAuth({ status: 'error', message: message(error) })
     } finally {
       setSyncing(false)
     }
-  }, [syncing, auth.status, accounts, startSyncing])
+  }, [syncing, auth.status, startSyncing])
 
   const signOut = useCallback(async () => {
     store?.close?.()
-    await forgetAllAccounts(platform)
     await signOutOfFirebase().catch(() => {})
-    setAccounts([])
+    setEmail(null)
     setStore(await openLocal())
     setAuth({ status: 'local' })
-  }, [platform, store, openLocal])
+  }, [store, openLocal])
 
   const value = useMemo<Cairn | null>(
     () =>
       store
         ? {
             platform,
+            worker,
             userId: store.userId,
             reminders: store.reminders,
             notes: store.notes,
             auth,
-            accounts,
+            email,
             signIn,
             signOut,
-            connectSource,
-            regrant,
-            disconnectSource,
-            matchAccount,
+            grant,
             sync: { busy: syncing || auth.status === 'connecting', at: syncedAt, run: runSync },
           }
         : null,
-    [platform, store, auth, accounts, signIn, signOut, connectSource, regrant, disconnectSource, matchAccount, syncing, syncedAt, runSync],
+    [platform, store, auth, email, signIn, signOut, grant, syncing, syncedAt, runSync],
   )
 
   if (!value) return null

@@ -1,24 +1,22 @@
 import { watchPreferences, writePreferences, type SyncedPreferences } from '@cairn/sync'
-import type { Feature, Paused } from '@cairn/ui'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCairn } from './context'
 
-/** The phone's settings document; only the pinned folders and paused reading matter here. */
+/** The phone's settings document; only the pinned folders matter here. */
 interface Preferences extends SyncedPreferences {
   pinnedFolders?: string[]
-  paused?: Partial<Paused>
 }
 
 /**
  * The settings shared with the phone, through the synced preferences.
- * Signed out there is nothing to share them with, so none are pinned and
- * nothing is paused.
+ * Signed out there is nothing to share them with, so none are pinned.
  */
 function useSharedPreferences(): { value: Preferences | null; write: (change: Partial<Preferences>) => Promise<void> } {
   const { auth, userId } = useCairn()
   const [value, setValue] = useState<Preferences | null>(null)
   const latest = useRef<Preferences | null>(null)
-  const synced = auth.status === 'synced'
+  // The browser preview is signed in as nobody; there is nothing to share with.
+  const synced = auth.status === 'synced' && userId !== 'preview'
 
   useEffect(() => {
     if (!synced) {
@@ -61,21 +59,4 @@ export function usePinnedFolders(): { pinned: string[]; toggle: (tag: string) =>
     [pinned, write],
   )
   return { pinned, toggle }
-}
-
-/**
- * Accounts whose Gmail or Classroom reading is switched off, shared with the
- * phone: switching one off here switches it off there.
- */
-export function usePaused(): { paused: Paused; setPaused: (feature: Feature, sub: string, paused: boolean) => Promise<void> } {
-  const { value, write } = useSharedPreferences()
-  const paused: Paused = { mail: value?.paused?.mail ?? [], classroom: value?.paused?.classroom ?? [] }
-  const setPaused = useCallback(
-    async (feature: Feature, sub: string, on: boolean) => {
-      const list = paused[feature].filter((s) => s !== sub)
-      await write({ paused: { ...paused, [feature]: on ? [...list, sub] : list } })
-    },
-    [paused, write],
-  )
-  return { paused, setPaused }
 }

@@ -9,7 +9,7 @@ import { useInbox } from '../app/inbox'
 import { useToast } from '../app/toast'
 import { ClassroomFilesPanel } from './ClassroomFilesPanel'
 import { ClassIcon, SettingsIcon } from './icons'
-import { AccountChips, Chip, GapNotices } from './InboxView'
+import { AccountChips, Chip, PausedNotice } from './InboxView'
 import { Switch } from './SettingsParts'
 import { SyncButton } from './SyncButton'
 
@@ -25,7 +25,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
   const inbox = useInbox()
   const toast = useToast()
   const files = useClassroomFiles()
-  const { reminders, accounts } = useCairn()
+  const { reminders } = useCairn()
   const tasks = useObserved(reminders, LIVE_TASKS)
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
   const [tab, setTab] = useState<'work' | 'announcement'>('work')
@@ -40,7 +40,6 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
   const work = visible.filter((r) => r.classroom?.kind === 'work')
   const announcements = visible.filter((r) => r.classroom?.kind === 'announcement')
   const shown = tab === 'work' ? work : announcements
-  const gaps = inbox.gaps.filter((g) => g.missing.some((s) => s === 'classroom' || s === 'announcements'))
   const filesOn = files !== null && files.courses.some((c) => c.selected)
 
   const head = (
@@ -48,7 +47,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
       <h1 className="view-title">Classroom</h1>
       <span className="view-sub">{work.filter((r) => !r.classroom?.submitted).length ? `${work.filter((r) => !r.classroom?.submitted).length} to do` : ''}</span>
       <span className="spacer" />
-      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh(true)} label="Check Classroom now" />}
+      {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh()} label="Check Classroom now" />}
       <button
         type="button"
         className={`icon ${filesOpen ? 'on' : ''}`}
@@ -68,7 +67,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
     </div>
   )
 
-  if (!inbox.signedIn || accounts.length === 0 || (inbox.classroomReadable.length === 0 && inbox.classroom.length === 0 && gaps.length === 0)) {
+  if (!inbox.signedIn || (inbox.classroomReaders.length === 0 && inbox.classroom.length === 0)) {
     return (
       <section className="view" aria-label="Classroom">
         {head}
@@ -79,12 +78,14 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
           </span>
           <p>
             {!inbox.signedIn
-              ? 'Sign in with the Google account your phone uses. New coursework and announcements from every account show here.'
-              : 'Turn on Google Classroom for an account in Settings, such as your university’s.'}
+              ? 'Sign in with the Google account you set Cairn up with on your phone. New coursework and announcements from every account show here.'
+              : 'Add your college account and choose Classroom in Cairn on your phone, and new coursework shows here.'}
           </p>
-          <button type="button" className="accent-button" onClick={onSettings}>
-            Open Settings
-          </button>
+          {!inbox.signedIn && (
+            <button type="button" className="accent-button" onClick={onSettings}>
+              Open Settings
+            </button>
+          )}
         </div>
       </section>
     )
@@ -103,7 +104,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
       <div className="notice">
         <span className="notice-text">
           <strong>Automatically add tasks</strong>
-          <span>Coursework at its due date, ticking itself off when handed in; announcements at any date they give. On your phone too.</span>
+          <span>Coursework at its due date, ticking itself off when handed in; announcements at any date they give. Shared with your phone.</span>
         </span>
         <Switch
           on={inbox.autoTasks}
@@ -124,7 +125,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
           )}
         </p>
       )}
-      <GapNotices gaps={gaps} what="Classroom" />
+      <PausedNotice />
       {inbox.error && <p className="notice danger">{inbox.error}</p>}
 
       {shown.length === 0 ? (
@@ -148,7 +149,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
           ))}
         </ul>
       )}
-      <p className="view-status">{readerStatus(inbox, 'desktop', now)}</p>
+      <p className="view-status">{readerStatus(inbox, now)}</p>
     </section>
   )
 }

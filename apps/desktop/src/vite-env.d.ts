@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** See .env.example. Absent in a clone that has not been set up. */
-  readonly VITE_GOOGLE_DESKTOP_CLIENT_SECRET?: string
+  /** Cairn's Worker, when it is not the address in packages/sync. See .env.example. */
+  readonly VITE_CAIRN_WORKER_URL?: string
 }
 
 interface ImportMeta {

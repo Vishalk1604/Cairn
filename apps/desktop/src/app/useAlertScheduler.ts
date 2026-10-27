@@ -1,4 +1,4 @@
-import type { Reminder } from '@cairn/core'
+import type { InboxRecord, Reminder, SenderRule } from '@cairn/core'
 import { useEffect, useRef } from 'react'
 import { planTick, type SchedulerState } from '../scheduler'
 import { useCairn } from './context'
@@ -11,10 +11,14 @@ const TICK_MS = 15_000
  * The last tick is saved, so reminders that came due while the app was closed
  * are reported once on the next launch instead of being lost.
  */
-export function useAlertScheduler(reminders: readonly Reminder[], onOpen: (reminderId: string) => void): void {
+export function useAlertScheduler(
+  reminders: readonly Reminder[],
+  inbox: { records: readonly InboxRecord[]; senders: Readonly<Record<string, SenderRule>> },
+  onOpen: (reminderId: string) => void,
+): void {
   const { platform } = useCairn()
-  const latest = useRef({ reminders, onOpen })
-  latest.current = { reminders, onOpen }
+  const latest = useRef({ reminders, inbox, onOpen })
+  latest.current = { reminders, inbox, onOpen }
 
   useEffect(() => {
     let state: SchedulerState | null = null
@@ -26,7 +30,7 @@ export function useAlertScheduler(reminders: readonly Reminder[], onOpen: (remin
       try {
         const now = Date.now()
         state ??= await loadState(now)
-        const result = planTick(latest.current.reminders, state, now)
+        const result = planTick(latest.current.reminders, state, now, { records: latest.current.inbox.records, senders: latest.current.inbox.senders })
         state = result.state
         await platform.storage.set(STATE_KEY, JSON.stringify(state))
         for (const n of result.notifications) {
@@ -52,7 +56,7 @@ export function useAlertScheduler(reminders: readonly Reminder[], onOpen: (remin
       } catch {
         // Unreadable state just means starting the clock from now.
       }
-      return { lastTick: now, lastDigestDay: null }
+      return { lastTick: now }
     }
 
     const onWake = () => {

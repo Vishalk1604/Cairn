@@ -1,5 +1,5 @@
 import type { InboxRecord } from '@cairn/core'
-import { collection, deleteDoc, doc, onSnapshot, setDoc, updateDoc, waitForPendingWrites, writeBatch } from 'firebase/firestore'
+import { collection, doc, onSnapshot, setDoc, updateDoc, waitForPendingWrites } from 'firebase/firestore'
 import { cairnFirestore } from './firebaseApp'
 import type { Unsubscribe } from './repository'
 
@@ -19,9 +19,6 @@ export type SettingName = 'accounts' | 'reader' | 'inbox'
 
 const inbox = (uid: string) => collection(cairnFirestore(), 'users', uid, 'inbox')
 const setting = (uid: string, name: SettingName) => doc(cairnFirestore(), 'users', uid, 'settings', name)
-
-/** A batch holds at most 500 writes; a little under, to be safe. */
-const BATCH = 400
 
 /** Firestore refuses undefined anywhere in a document. */
 function defined<T>(value: T): T {
@@ -43,28 +40,9 @@ export function watchInbox(uid: string, onChange: (records: InboxRecord[]) => vo
   )
 }
 
-/** Writes whole records, a batch at a time. */
-export async function writeInbox(uid: string, records: readonly InboxRecord[]): Promise<void> {
-  const db = cairnFirestore()
-  for (let i = 0; i < records.length; i += BATCH) {
-    const batch = writeBatch(db)
-    for (const record of records.slice(i, i + BATCH)) batch.set(doc(inbox(uid), record.id), defined(record))
-    await batch.commit()
-  }
-}
-
 /** Changes a few fields of one record: opened, hidden, made into a task. */
 export async function patchInbox(uid: string, id: string, patch: Partial<Pick<InboxRecord, 'read' | 'dismissed' | 'tasked' | 'updatedAt'>>): Promise<void> {
   await updateDoc(doc(inbox(uid), id), defined(patch))
-}
-
-export async function deleteInbox(uid: string, ids: readonly string[]): Promise<void> {
-  const db = cairnFirestore()
-  for (let i = 0; i < ids.length; i += BATCH) {
-    const batch = writeBatch(db)
-    for (const id of ids.slice(i, i + BATCH)) batch.delete(doc(inbox(uid), id))
-    await batch.commit()
-  }
 }
 
 /** One settings document, now and whenever it changes; null while there is none. */
@@ -79,10 +57,6 @@ export function watchSetting<T>(uid: string, name: SettingName, onChange: (value
 /** Merged into what is there, so two devices writing different fields do not undo each other. */
 export async function writeSetting<T extends object>(uid: string, name: SettingName, value: T, options: { replace?: boolean } = {}): Promise<void> {
   await setDoc(setting(uid, name), defined(value), { merge: !options.replace })
-}
-
-export async function deleteSetting(uid: string, name: SettingName): Promise<void> {
-  await deleteDoc(setting(uid, name))
 }
 
 /**

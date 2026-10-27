@@ -66,10 +66,9 @@ service cloud.firestore {
       allow read, write: if signedInAs(userId);
     }
 
-    // The shared inbox: what the device reading Gmail and Classroom made of
-    // each message, so every device shows the same one. A record is a
-    // summary, never the message: the preview is capped, and a body is
-    // refused outright.
+    // The shared inbox: what the Worker made of each email and Classroom post,
+    // so every device shows the same one. A record is a summary, never the
+    // message: the preview is capped, and a body is refused outright.
     match /users/{userId}/inbox/{messageId} {
       allow read, delete: if signedInAs(userId);
       allow create, update: if signedInAs(userId)
@@ -86,16 +85,16 @@ service cloud.firestore {
         && !('body' in request.resource.data);
     }
 
-    // A few small shared settings: which accounts each device has connected
-    // and for what, which device reads the mail, the person's rules for it,
-    // and their own AI key. Never a Google token: each device signs in for
-    // itself. The key is checked to be one, so nothing else lands there.
+    // A few small settings, the person's own: which accounts the Worker reads
+    // and for what, and when it last looked (both written by the Worker, as
+    // the person, under these same rules), and their rules for the inbox.
+    // Never a token or an AI key: those stay in the Worker, sealed, and are
+    // refused here by name.
     match /users/{userId}/settings/{name} {
-      allow read, delete: if signedInAs(userId) && name in ['accounts', 'reader', 'inbox', 'ai'];
+      allow read, delete: if signedInAs(userId) && name in ['accounts', 'reader', 'inbox'];
       allow create, update: if signedInAs(userId)
-        && name in ['accounts', 'reader', 'inbox', 'ai']
-        && !request.resource.data.keys().hasAny(['refreshToken', 'accessToken', 'idToken'])
-        && (name != 'ai' || (request.resource.data.key is string && request.resource.data.key.matches('nvapi-[A-Za-z0-9_-]{20,200}')));
+        && name in ['accounts', 'reader', 'inbox']
+        && !request.resource.data.keys().hasAny(['refreshToken', 'accessToken', 'idToken', 'key', 'apiKey']);
     }
   }
 }

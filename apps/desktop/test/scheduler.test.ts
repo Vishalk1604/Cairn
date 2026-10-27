@@ -6,7 +6,7 @@ const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo -
 const NOW = at(2026, 9, 14, 13)
 const due = (title: string, dueAt: number, extra: Partial<Parameters<typeof createReminder>[0]> = {}): Reminder =>
   createReminder({ title, dueAt, ...extra }, { userId: 'u', now: NOW - 10 * HOUR })
-const state = (lastTick: number): SchedulerState => ({ lastTick, lastDigestDay: at(2026, 9, 14) })
+const state = (lastTick: number): SchedulerState => ({ lastTick })
 
 describe('planTick', () => {
   it('fires what came due since the last tick, once', () => {
@@ -21,7 +21,7 @@ describe('planTick', () => {
       due('Exam', at(2026, 9, 15, 9), { alertOffsets: [0, 24 * 60] }),
       due('Laundry', at(2026, 9, 14, 9), { allDay: true }),
     ]
-    const { notifications } = planTick(rs, state(at(2026, 9, 14, 8, 59)), at(2026, 9, 14, 9), { locale: 'en-US' })
+    const { notifications } = planTick(rs, state(at(2026, 9, 14, 8, 59)), at(2026, 9, 14, 9), { locale: 'en-US', digest: false })
     expect(notifications.map((n) => [n.title, n.body?.replace(/ /g, ' ')])).toEqual([
       ['Exam', 'Due Tomorrow 9:00 AM'],
       ['Laundry', 'Due today'],
@@ -45,18 +45,25 @@ describe('planTick', () => {
     expect(planTick([r], state(NOW - 15_000), NOW).notifications.map((n) => n.title)).toEqual(['Stretch'])
   })
 
-  it('sends the morning digest once a day, only in the morning', () => {
+  it('says what is due today in the morning, and sums the day up at eight, once each', () => {
     const rs = [due('Essay', at(2026, 9, 15, 17)), due('Quiz', at(2026, 9, 15, 10))]
-    const fresh: SchedulerState = { lastTick: at(2026, 9, 15, 7, 59), lastDigestDay: at(2026, 9, 14) }
+    const fresh: SchedulerState = { lastTick: at(2026, 9, 15, 6, 59) }
 
-    const early = planTick(rs, fresh, at(2026, 9, 15, 7, 59))
-    expect(early.notifications).toEqual([])
+    expect(planTick(rs, fresh, at(2026, 9, 15, 6, 59)).notifications).toEqual([])
 
-    const morning = planTick(rs, { ...fresh, lastTick: at(2026, 9, 15, 8) }, at(2026, 9, 15, 8, 0))
-    expect(morning.notifications).toEqual([{ title: '2 things due today', body: 'Quiz · Essay', tag: 'digest' }])
-    expect(planTick(rs, morning.state, at(2026, 9, 15, 8, 1)).notifications).toEqual([])
+    const seven = planTick(rs, { ...fresh, lastTick: at(2026, 9, 15, 7) }, at(2026, 9, 15, 7, 0))
+    expect(seven.notifications).toEqual([{ title: '2 things due today', body: 'Quiz at 10:00 am · Essay at 5:00 pm', tag: 'digest-morning' }])
+    const eight = planTick(rs, seven.state, at(2026, 9, 15, 8, 0))
+    expect(eight.notifications).toEqual([{ title: 'Today', body: '2 due today\nQuiz at 10:00 am · Essay at 5:00 pm', tag: 'digest-today' }])
+    expect(planTick(rs, eight.state, at(2026, 9, 15, 8, 1)).notifications).toEqual([])
 
     const afternoon = planTick(rs, { ...fresh, lastTick: at(2026, 9, 15, 12) }, at(2026, 9, 15, 12))
-    expect(afternoon.notifications.filter((n) => n.tag === 'digest')).toEqual([])
+    expect(afternoon.notifications.filter((n) => n.tag?.startsWith('digest'))).toEqual([])
+  })
+
+  it('says what is due tomorrow at eight in the evening, opening the task when there is one', () => {
+    const rs = [due('Lab 4', at(2026, 9, 15, 23, 59))]
+    const evening = planTick(rs, { lastTick: at(2026, 9, 14, 20) }, at(2026, 9, 14, 20, 0))
+    expect(evening.notifications).toEqual([{ title: 'Due tomorrow', body: 'Lab 4 at 11:59 pm', tag: 'digest-evening', reminderId: rs[0]!.id }])
   })
 })

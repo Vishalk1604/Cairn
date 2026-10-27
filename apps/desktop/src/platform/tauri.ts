@@ -1,14 +1,12 @@
 import type { UrgencyLevel } from '@cairn/core'
-import type { AiFetch, KeyValueStore } from '@cairn/sync'
+import type { KeyValueStore } from '@cairn/sync'
 import type { AppNotification, PermissionState } from '@cairn/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
-import { fetch as shellFetch } from '@tauri-apps/plugin-http'
 import { isPermissionGranted, onAction, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { load, type Store } from '@tauri-apps/plugin-store'
-import { googleClientId, googleClientSecret } from './googleClient'
 import type { DesktopClassroom, DesktopMedia, DesktopPlatform } from './types'
 
 /** Raised by the shell for the hotkey and the tray menu item. */
@@ -77,13 +75,6 @@ const classroom: DesktopClassroom = {
   open: (folder) => invoke('media_open', { dir: folder }),
 }
 
-/**
- * NVIDIA's API sends no CORS headers, so a request from the web view would
- * be refused before it left. This one is made by the shell instead, which
- * the capabilities file allows for NVIDIA's addresses and nothing else.
- */
-const aiFetch: AiFetch = (url, init) => shellFetch(url, init as RequestInit)
-
 export const tauriPlatform: DesktopPlatform = {
   name: 'tauri',
   storage,
@@ -126,8 +117,8 @@ export const tauriPlatform: DesktopPlatform = {
     await invoke('set_tray_state', { level, tooltip })
   },
 
-  // Encrypted with DPAPI by the shell, so the token is tied to this Windows
-  // account rather than sitting in a file any process could read.
+  // Encrypted with DPAPI by the shell. Nothing needs it now that the Worker
+  // holds the Google tokens; it is kept for clearing what older versions left.
   secrets: {
     get: (key) => invoke<string | null>('secret_get', { key }),
     set: (key, value) => invoke('secret_set', { key, value }),
@@ -163,14 +154,10 @@ export const tauriPlatform: DesktopPlatform = {
 
   media,
   classroom,
-  aiFetch,
-
-  googleClientId,
-  googleClientSecret,
 
   async authorize(buildUrl) {
     // The shell opens a loopback port first, because the redirect address
-    // has to name the port Google will be sent back to.
+    // has to name the port the Worker will send the browser back to.
     const port = await invoke<number>('oauth_listen')
     try {
       return await invoke<string>('oauth_await', { authorizeUrl: buildUrl(`http://127.0.0.1:${port}`) })

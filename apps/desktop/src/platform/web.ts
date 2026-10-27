@@ -1,6 +1,5 @@
 import type { KeyValueStore } from '@cairn/sync'
 import type { PermissionState } from '@cairn/ui'
-import { googleClientId, googleClientSecret } from './googleClient'
 import type { DesktopPlatform } from './types'
 
 const storage: KeyValueStore = {
@@ -56,8 +55,8 @@ export const webPlatform: DesktopPlatform = {
   },
 
   // Browser storage is readable by anything with the page open, which is no
-  // place for a refresh token. Development in a browser therefore runs
-  // signed out, and everything that does not need an account still works.
+  // place for a secret. Development in a browser runs signed out (or as the
+  // ?preview stand-in), and everything that does not need an account works.
   secrets: {
     async get() {
       return null
@@ -90,10 +89,7 @@ export const webPlatform: DesktopPlatform = {
   media: null,
   classroom: null,
 
-  googleClientId,
-  googleClientSecret,
-
   async authorize() {
-    throw new Error('Signing in needs the Cairn desktop app, which can listen for Google’s reply')
+    throw new Error('Signing in needs the Cairn desktop app, which can listen for the reply from your browser')
   },
 }

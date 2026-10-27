@@ -1,18 +1,8 @@
 /**
- * Google OAuth clients for the Cairn project (`cairn-vishalk`).
- *
- * Client ids are public by design: they appear in every authorization URL and
- * are readable inside any shipped binary. The desktop client also has a
- * "secret", which Google does not treat as confidential for installed apps for
- * the same reason — so the flow uses PKCE and the secret stays out of this
- * repository entirely.
+ * What Cairn asks Google for, by feature. The asking itself is done by
+ * Cairn's Worker (apps/worker), the one OAuth client that holds a grant: the
+ * apps say which groups they want, and the Worker turns them into scopes.
  */
-export const GOOGLE_CLIENTS = {
-  /** Loopback redirect, used by the Tauri app. */
-  desktop: '1093942418184-q3jfnam9jrl8h9gnu03nfhr6svvc9297.apps.googleusercontent.com',
-  /** Bound to the package name and signing certificate, used by the Android app. */
-  android: '1093942418184-11u39gumovas9mmhau9flcm9q77n9mqf.apps.googleusercontent.com',
-} as const
 
 /**
  * Asked for in stages rather than all at once: signing in should not demand
@@ -24,10 +14,10 @@ export const GOOGLE_SCOPES = {
   identity: ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'],
   /** First time you attach an image or a recording. Non-sensitive: only files Cairn created. */
   media: ['https://www.googleapis.com/auth/drive.file'],
-  /** First time you open the Notifications tab. Restricted. */
+  /** When Gmail is chosen, on the phone. Restricted. */
   mail: ['https://www.googleapis.com/auth/gmail.readonly'],
   /**
-   * First time you turn on Classroom. Sensitive.
+   * When Classroom is chosen, on the phone. Sensitive.
    *
    * Only what Cairn reads: courses, your own coursework with its
    * submission state, and announcements. The older student-submissions
@@ -41,7 +31,7 @@ export const GOOGLE_SCOPES = {
     'https://www.googleapis.com/auth/classroom.announcements.readonly',
   ],
   /**
-   * First time you turn on Classroom files on the desktop. Restricted.
+   * When Classroom files are turned on, on the desktop. Restricted.
    *
    * A file a teacher attaches lives in the teacher's Drive, not Cairn's, so
    * downloading it needs read access to Drive files shared with you; the

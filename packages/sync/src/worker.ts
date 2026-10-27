@@ -112,8 +112,8 @@ export class WorkerClient {
    * Google's consent and sends the browser back to `redirect` with a
    * one-time code and `state`.
    */
-  authUrl(options: { redirect: string; state: string; want: readonly Want[]; hint?: string; ticket?: string; add?: boolean }): string {
-    const params: Record<string, string> = { redirect: options.redirect, state: options.state, want: options.want.join(',') }
+  authUrl(options: { redirect: string; state: string; challenge: string; want: readonly Want[]; hint?: string; ticket?: string; add?: boolean }): string {
+    const params: Record<string, string> = { redirect: options.redirect, state: options.state, challenge: options.challenge, want: options.want.join(',') }
     if (options.hint) params.hint = options.hint
     if (options.ticket) params.ticket = options.ticket
     if (options.add) params.add = '1'
@@ -128,9 +128,18 @@ export class WorkerClient {
     return (await this.call<{ ticket: string }>('POST', '/auth/ticket')).ticket
   }
 
-  /** Trades the one-time code for the Google ID token that signs in to Firebase. */
-  async exchange(code: string): Promise<{ email: string; uid: string; idToken?: string }> {
-    return this.call('POST', '/auth/exchange', { code }, false)
+  /**
+   * Trades the one-time code for the Google ID token that signs in to
+   * Firebase. The verifier proves this is the app that started the sign-in,
+   * not another app that caught the redirect.
+   */
+  async exchange(code: string, verifier: string): Promise<{ email: string; uid: string; idToken?: string }> {
+    return this.call('POST', '/auth/exchange', { code, verifier }, false)
+  }
+
+  /** Stops every check and deletes everything the Worker holds for this person. */
+  async forget(): Promise<void> {
+    await this.call('DELETE', '/me')
   }
 
   async token(account: string, purpose: TokenPurpose): Promise<{ accessToken: string; expiresAt: number }> {
@@ -138,7 +147,7 @@ export class WorkerClient {
   }
 
   /** Checks this person's mail and Classroom now. Resolves once what was found is in Firestore. */
-  async sync(): Promise<{ checkedAt: number; found: number; busy?: boolean }> {
+  async sync(): Promise<{ checkedAt: number; found: number; busy?: boolean; errors?: string[] }> {
     return this.call('POST', '/sync')
   }
 

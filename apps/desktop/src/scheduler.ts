@@ -1,21 +1,23 @@
 import {
   alertsBetween,
-  atLocalTime,
-  buildDigest,
-  buildTodaySummary,
   DAY,
+  digestKey,
+  dueDigest,
+  dueDigests,
   MINUTE,
-  startOfLocalDay,
+  todayDigest,
   type Alert,
+  type InboxRecord,
   type Reminder,
+  type SenderRule,
 } from '@cairn/core'
 import { describeAlert } from '@cairn/ui'
 
 export interface SchedulerState {
   /** The instant the previous tick covered up to. */
   lastTick: number
-  /** Start of the local day the morning digest last went out. */
-  lastDigestDay: number | null
+  /** Digests already sent, by digestKey: each goes out once a day. */
+  sent?: string[]
 }
 
 export interface TickNotification {
@@ -31,10 +33,11 @@ export interface TickOptions {
   staleAfterMs?: number
   /** More simultaneous alerts than this collapse into one notification. */
   groupAbove?: number
-  /** Morning digest goes out at this hour, or at first launch before digestUntilHour. */
-  digestHour?: number
-  digestUntilHour?: number
+  /** The evening's "due tomorrow", the morning's "due today" and the eight o'clock summary. */
   digest?: boolean
+  /** What the inbox holds, for the summary. */
+  records?: readonly InboxRecord[]
+  senders?: Readonly<Record<string, SenderRule>>
   /** For notification text. Defaults to the system locale. */
   locale?: string
 }
@@ -73,17 +76,17 @@ export function planTick(
     })
   }
 
-  let lastDigestDay = state.lastDigestDay
-  const today = startOfLocalDay(now)
-  const digestWindowOpen =
-    now >= atLocalTime(now, options.digestHour ?? 8) && now < atLocalTime(now, options.digestUntilHour ?? 12)
-  if ((options.digest ?? true) && lastDigestDay !== today && digestWindowOpen) {
-    const digest = buildDigest(buildTodaySummary(reminders, now))
-    if (digest) notifications.push({ ...digest, tag: 'digest' })
-    lastDigestDay = today
+  // The same digests the phone is sent, on this computer's own clock, while Cairn runs.
+  const sent = new Set(state.sent ?? [])
+  if (options.digest ?? true) {
+    for (const kind of dueDigests(now, sent)) {
+      sent.add(digestKey(kind, now))
+      const digest = kind === 'today' ? todayDigest(reminders, options.records ?? [], now, options.senders) : dueDigest(kind, reminders, now)
+      if (digest) notifications.push({ title: digest.title, body: digest.body, tag: `digest-${kind}`, ...(digest.reminderId ? { reminderId: digest.reminderId } : {}) })
+    }
   }
 
-  return { notifications, state: { lastTick: now, lastDigestDay } }
+  return { notifications, state: { lastTick: now, sent: [...sent].slice(-9) } }
 }
 
 function titles(alerts: readonly Alert[]): string {

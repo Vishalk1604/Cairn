@@ -1,4 +1,4 @@
-import { featuresOf, formatAgo } from '@cairn/ui'
+import { formatAgo } from '@cairn/ui'
 import { useState } from 'react'
 import { useClassroomFiles } from '../app/classroomFiles'
 import { useCairn } from '../app/context'
@@ -10,18 +10,18 @@ import { Row, Section, Switch } from './SettingsParts'
  */
 export function ClassroomFilesPanel() {
   const files = useClassroomFiles()
-  const { accounts, regrant, connectSource } = useCairn()
-  const [busy, setBusy] = useState(false)
+  const { auth } = useCairn()
+  const [busy, setBusy] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const run = async (work: () => Promise<void>) => {
-    setBusy(true)
+  const run = async (key: string, work: () => Promise<void>) => {
+    setBusy(key)
     setProblem(null)
     try {
       await work()
     } catch (e) {
       setProblem(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
   const note =
@@ -35,31 +35,31 @@ export function ClassroomFilesPanel() {
     )
   }
 
-  const allow = (
-    <Row title="Another account" detail="Such as your university's, if your classes are there.">
-      <button type="button" className="button quiet-button" disabled={busy} onClick={() => void run(() => connectSource({ mail: false, classroom: true, files: true }))}>
-        Connect…
+  /**
+   * Accounts reading Classroom that have not let Cairn read their class
+   * files yet. Google asks in the browser for exactly that — Drive and
+   * Classroom materials, read only — and nothing else changes.
+   */
+  const allow = files.waiting.map((account) => (
+    <Row
+      key={account.email}
+      title={account.email}
+      detail="Google will ask, in your browser, to let Cairn read the files your classes share with this account."
+    >
+      <button type="button" className="button" disabled={busy !== null} onClick={() => void run(account.email, () => files.allow(account.email))}>
+        {busy === account.email ? 'Waiting for your browser…' : 'Allow…'}
       </button>
     </Row>
-  )
+  ))
 
   if (files.readers.length === 0) {
     return (
       <Section title="Files from Classroom" note={note}>
-        {accounts.length === 0 && <Row title="Sign in first" detail="Sign in from Settings with the Google account your classes are in." />}
-        {accounts.map((account) => (
-          <Row key={account.identity.sub} title={account.identity.email} detail="Google will ask you to let Cairn read files your classes share with this account.">
-            <button
-              type="button"
-              className="button"
-              disabled={busy}
-              onClick={() => void run(() => regrant(account, { ...featuresOf(account), classroom: true, files: true }))}
-            >
-              Allow
-            </button>
-          </Row>
-        ))}
-        {accounts.length > 0 && allow}
+        {auth.status !== 'synced' && <Row title="Sign in first" detail="Sign in from Settings with the account you set Cairn up with on your phone." />}
+        {auth.status === 'synced' && files.waiting.length === 0 && (
+          <Row title="No Classroom account yet" detail="Add your college account and choose Classroom in Cairn on your phone first." />
+        )}
+        {allow}
         {problem && <Row title="Not allowed" detail={problem} tone="danger" />}
       </Section>
     )
@@ -75,7 +75,7 @@ export function ClassroomFilesPanel() {
   return (
     <Section title="Files from Classroom" note={note}>
       <Row title="Folder" detail={<span className="path">{files.folder}</span>}>
-        <button type="button" className="button" disabled={busy} onClick={() => void run(files.chooseFolder)}>
+        <button type="button" className="button" disabled={busy !== null} onClick={() => void run('folder', files.chooseFolder)}>
           Change…
         </button>
         <button type="button" className="button quiet-button" onClick={() => void files.openFolder()}>
@@ -84,7 +84,7 @@ export function ClassroomFilesPanel() {
       </Row>
       {!files.isDefault && (
         <Row title="Use the default folder" detail="Cairn Classroom in your Documents. Files already saved stay where they are.">
-          <button type="button" className="button quiet-button" disabled={busy} onClick={() => void run(files.useDefaultFolder)}>
+          <button type="button" className="button quiet-button" disabled={busy !== null} onClick={() => void run('folder', files.useDefaultFolder)}>
             Use default
           </button>
         </Row>
@@ -106,7 +106,7 @@ export function ClassroomFilesPanel() {
             .filter(Boolean)
             .join(' · ') || undefined}
         >
-          <Switch on={course.selected} label={`Save files from ${course.name}`} onChange={(on) => void run(() => files.setCourse(course.id, on))} />
+          <Switch on={course.selected} label={`Save files from ${course.name}`} onChange={(on) => void run(course.id, () => files.setCourse(course.id, on))} />
         </Row>
       ))}
       {allow}

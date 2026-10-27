@@ -9,18 +9,24 @@ import { ToastProvider } from './app/toast'
 import { detectPlatform } from './platform'
 import './styles.css'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <CairnProvider platform={detectPlatform()}>
-      <MediaProvider>
-        <ClassroomFilesProvider>
-          <InboxProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
+async function start() {
+  // localhost:1420/?preview shows the signed-in screens with made-up data. Never in a build.
+  const preview = import.meta.env.DEV && new URLSearchParams(location.search).has('preview') ? await import('./preview') : null
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <CairnProvider platform={preview?.platform ?? detectPlatform()} preview={preview?.user}>
+        <MediaProvider>
+          <InboxProvider host={preview?.inboxHost}>
+            <ClassroomFilesProvider>
+              <ToastProvider>
+                <App />
+              </ToastProvider>
+            </ClassroomFilesProvider>
           </InboxProvider>
-        </ClassroomFilesProvider>
-      </MediaProvider>
-    </CairnProvider>
-  </StrictMode>,
-)
+        </MediaProvider>
+      </CairnProvider>
+    </StrictMode>,
+  )
+}
+
+void start()

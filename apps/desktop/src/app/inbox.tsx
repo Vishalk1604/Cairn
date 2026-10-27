@@ -1,20 +1,18 @@
 import type { InboxRecord, SenderRule } from '@cairn/core'
-import { gmailLink, type AiSetup } from '@cairn/sync'
-import { InboxEngine, type Feature, type InboxHost, type InboxState } from '@cairn/ui'
+import { gmailLink } from '@cairn/sync'
+import { InboxEngine, type InboxHost, type InboxState } from '@cairn/ui'
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { useCairn } from './context'
 
 export interface Inbox extends InboxState {
-  /** Reads if this computer is the reader; with `manual` (Sync now), reads here whoever is. */
-  refresh(manual?: boolean): Promise<void>
-  startFresh(account: string, feature: Feature): Promise<void>
+  /** Sync now: Cairn's Worker looks at every account straight away. */
+  refresh(): Promise<void>
   addAsTask(record: InboxRecord): Promise<void>
   dismiss(record: InboxRecord, dismissed?: boolean): Promise<void>
   /** Opens it where it lives, Gmail or Classroom, and marks it read everywhere. */
   open(record: InboxRecord): void
   mark(record: InboxRecord, rule: SenderRule): Promise<void>
   markSeen(tab: 'inbox' | 'classroom'): void
-  setAiSetup(setup: AiSetup | null): Promise<void>
   setProfile(profile: string): Promise<void>
   setAutoTasks(on: boolean): Promise<void>
 }
@@ -22,14 +20,13 @@ export interface Inbox extends InboxState {
 const Context = createContext<Inbox | null>(null)
 
 /**
- * The shared inbox, on the computer. Cairn lives in the tray, so this is
- * usually the device that reads Gmail and Classroom for every other: it
- * claims the reading whenever it can read everything the phone can, sorts
- * with the same key, and writes what it finds for the phone to show.
+ * The shared inbox, on the computer: what the Worker read and sorted, from
+ * Firestore. While Cairn runs, what arrives is announced here as a toast, the
+ * same things the phone is told by push.
  */
 export function InboxProvider({ children, host }: { children: ReactNode; host?: Partial<InboxHost> }) {
-  const { accounts, platform, reminders, userId, auth } = useCairn()
-  const engine = useMemo(() => new InboxEngine({ platform, kind: 'desktop', ...host }), [platform, host])
+  const { platform, reminders, userId, auth, worker } = useCairn()
+  const engine = useMemo(() => new InboxEngine({ platform, worker, announce: true, ...host }), [platform, worker, host])
   useEffect(() => {
     void engine.ready()
     return () => engine.dispose()
@@ -37,15 +34,14 @@ export function InboxProvider({ children, host }: { children: ReactNode; host?: 
 
   const signedIn = auth.status === 'synced'
   useEffect(() => {
-    engine.setContext({ userId: signedIn ? userId : null, accounts, reminders })
-  }, [engine, signedIn, userId, accounts, reminders])
+    engine.setContext({ userId: signedIn ? userId : null, reminders })
+  }, [engine, signedIn, userId, reminders])
 
   const state = useSyncExternalStore(engine.subscribe, engine.getState)
   const value = useMemo<Inbox>(
     () => ({
       ...state,
-      refresh: (manual) => engine.refresh(manual),
-      startFresh: (account, feature) => engine.startFresh(account, feature),
+      refresh: () => engine.refresh(),
       addAsTask: (record) => engine.addAsTask(record),
       dismiss: (record, dismissed) => engine.dismiss(record, dismissed),
       open(record) {
@@ -55,7 +51,6 @@ export function InboxProvider({ children, host }: { children: ReactNode; host?: 
       },
       mark: (record, rule) => engine.mark(record, rule),
       markSeen: (tab) => engine.markSeen(tab),
-      setAiSetup: (setup) => engine.setAiSetup(setup),
       setProfile: (profile) => engine.setProfile(profile),
       setAutoTasks: (on) => engine.setAutoTasks(on),
     }),

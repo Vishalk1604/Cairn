@@ -1,8 +1,8 @@
 import { isRealFolder, type Folder } from '@cairn/ui'
 import type { ReactNode } from 'react'
-import { ClassIcon, DoneIcon, FolderIcon, InboxIcon, NotesIcon, PinIcon, SettingsIcon, TasksIcon } from './icons'
+import { ClassIcon, DoneIcon, FolderIcon, InboxIcon, NotesIcon, PinIcon, SettingsIcon, TasksIcon, TodayIcon } from './icons'
 
-export type Section = 'tasks' | 'notes' | 'inbox' | 'classroom' | 'done' | 'settings' | 'bin'
+export type Section = 'today' | 'tasks' | 'notes' | 'inbox' | 'classroom' | 'done' | 'settings' | 'bin'
 
 interface Props {
   section: Section
@@ -26,6 +26,7 @@ export function Sidebar({ section, folder, folders, pinned, taskCount, overdue, 
   return (
     <nav className="sidebar" aria-label="Cairn">
       <div className="nav-group">
+        <NavItem icon={<TodayIcon />} label="Today" on={section === 'today'} onClick={() => onSection('today')} />
         <NavItem icon={<TasksIcon />} label="Tasks" on={section === 'tasks'} onClick={() => onSection('tasks')}>
           {overdue > 0 ? <span className="nav-badge danger">{overdue} late</span> : <span className="nav-count">{taskCount || ''}</span>}
         </NavItem>
