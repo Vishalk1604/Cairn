@@ -220,6 +220,14 @@ describe('shared settings', () => {
     await assertSucceeds(getDoc(settingAt(mine(), ME, 'reader')))
   })
 
+  it('lets the owner keep colours for their Classroom courses, and only as a map', async () => {
+    await assertSucceeds(setDoc(settingAt(mine(), ME, 'courses'), { colors: { NjQ3MDk0: 'sky', OTU0: 'auto' }, updatedAt: 1 }))
+    await assertSucceeds(getDoc(settingAt(mine(), ME, 'courses')))
+    await assertFails(setDoc(settingAt(mine(), ME, 'courses'), { colors: 'sky' }))
+    await assertFails(setDoc(settingAt(theirs(), ME, 'courses'), { colors: {} }))
+    await assertFails(getDoc(settingAt(theirs(), ME, 'courses')))
+  })
+
   it('never keeps the AI key in Firestore', async () => {
     await assertFails(setDoc(settingAt(mine(), ME, 'ai'), { key: FAKE_KEY, updatedAt: 1 }))
     await assertFails(getDoc(settingAt(mine(), ME, 'ai')))

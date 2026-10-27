@@ -4,6 +4,7 @@ import { formatDue, formatReminderWhen, snoozeChoices, URGENCY } from '@cairn/ui
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useActions } from '../app/actions'
 import { useCairn } from '../app/context'
+import { useCourses } from '../app/courses'
 import { useObserved } from '../app/hooks'
 import { CheckIcon, DoneIcon, PlusIcon, SnoozeIcon, TasksIcon, TrashIcon } from './icons'
 
@@ -76,9 +77,11 @@ export function TasksView({ active, now, capture, onEdit, onNew }: Props) {
 
 export const TaskRow = memo(function TaskRow({ reminder: r, level, now, onEdit }: { reminder: Reminder; level: UrgencyLevel; now: number; onEdit: (r: Reminder) => void }) {
   const actions = useActions()
+  const courses = useCourses()
+  const course = courses.color(r.courseId)
   const snoozed = r.status === 'snoozed' && (r.snoozedUntil ?? 0) > now
   return (
-    <li className="task" data-urgency={level} style={{ '--urgency': URGENCY[level].color } as CSSProperties}>
+    <li className={`task ${course ? 'course' : ''}`} data-urgency={level} style={{ '--urgency': URGENCY[level].color, '--course': course } as CSSProperties}>
       <button type="button" className="task-check" aria-label={`Complete ${r.title}`} title="Mark done" onClick={() => void actions.complete(r)}>
         <CheckIcon size={14} />
       </button>
@@ -86,6 +89,7 @@ export const TaskRow = memo(function TaskRow({ reminder: r, level, now, onEdit }
         <span className="task-title">{r.title}</span>
         <span className="task-when">
           {formatReminderWhen(r, now)}
+          {course && <span className="course-chip">{courses.name(r.courseId) ?? 'Classroom'}</span>}
           {snoozed && ' · snoozed'}
           {r.priority === 'high' && <span className="task-flag">High</span>}
         </span>

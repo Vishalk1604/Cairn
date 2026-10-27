@@ -51,6 +51,14 @@ export function useColors(): Palette {
   return useColorScheme() === 'light' ? light : dark
 }
 
+/** Which theme is showing, for tokens that have a shade per theme (course colours). */
+export function useScheme(): 'dark' | 'light' {
+  return useColorScheme() === 'light' ? 'light' : 'dark'
+}
+
+/** Both palettes, for the home-screen widget, which draws outside React's tree. */
+export const palettes = { dark, light } as const
+
 /**
  * The default palette, for the few places that cannot hold a hook — and for
  * components still written against a module-level `colors`.

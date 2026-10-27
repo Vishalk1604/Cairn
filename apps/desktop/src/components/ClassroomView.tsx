@@ -1,13 +1,15 @@
 import { dueOf, inboxTaskId, type InboxRecord } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
 import { formatAgo, formatDue, readerStatus } from '@cairn/ui'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useClassroomFiles } from '../app/classroomFiles'
 import { useCairn } from '../app/context'
+import { useCourses } from '../app/courses'
 import { useObserved } from '../app/hooks'
 import { useInbox } from '../app/inbox'
 import { useToast } from '../app/toast'
 import { ClassroomFilesPanel } from './ClassroomFilesPanel'
+import { CourseColorsPanel } from './CourseColorsPanel'
 import { ClassIcon, SettingsIcon } from './icons'
 import { AccountChips, Chip, PausedNotice } from './InboxView'
 import { Switch } from './SettingsParts'
@@ -30,6 +32,7 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
   const [tab, setTab] = useState<'work' | 'announcement'>('work')
   const [account, setAccount] = useState<string | null>(null)
+  const [colours, setColours] = useState(false)
   const now = Date.now()
 
   const { markSeen } = inbox
@@ -48,23 +51,47 @@ export function ClassroomView({ onSettings, files: filesOpen, onFiles }: { onSet
       <span className="view-sub">{work.filter((r) => !r.classroom?.submitted).length ? `${work.filter((r) => !r.classroom?.submitted).length} to do` : ''}</span>
       <span className="spacer" />
       {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onClick={() => void inbox.refresh()} label="Check Classroom now" />}
+      {inbox.courses.length > 0 && (
+        <button
+          type="button"
+          className={`icon ${colours ? 'on' : ''}`}
+          aria-label="Course colours"
+          title="Course colours"
+          aria-expanded={colours}
+          onClick={() => {
+            setColours(!colours)
+            onFiles(false)
+          }}
+        >
+          <span className="palette-icon" aria-hidden="true" />
+        </button>
+      )}
       <button
         type="button"
         className={`icon ${filesOpen ? 'on' : ''}`}
         aria-label="Classroom files on this computer"
         title="Files on this computer"
         aria-expanded={filesOpen}
-        onClick={() => onFiles(!filesOpen)}
+        onClick={() => {
+          onFiles(!filesOpen)
+          setColours(false)
+        }}
       >
         <SettingsIcon size={18} />
       </button>
     </header>
   )
 
-  const panel = filesOpen && (
+  const panel = filesOpen ? (
     <div className="files-panel">
       <ClassroomFilesPanel />
     </div>
+  ) : (
+    colours && (
+      <div className="files-panel">
+        <CourseColorsPanel />
+      </div>
+    )
   )
 
   if (!inbox.signedIn || (inbox.classroomReaders.length === 0 && inbox.classroom.length === 0)) {
@@ -171,11 +198,12 @@ function PostCard({
   onAdd: () => void
   onHide: () => void
 }) {
+  const courses = useCourses()
   const post = record.classroom!
   const due = dueOf(record)
   const summary = record.triage?.summary ?? record.snippet
   return (
-    <li className={`mail ${record.read ? 'read' : ''} ${post.submitted ? 'done' : ''}`}>
+    <li className={`mail course ${record.read ? 'read' : ''} ${post.submitted ? 'done' : ''}`} style={{ '--course': courses.color(post.courseId) } as CSSProperties}>
       <button type="button" className="mail-open" onClick={onOpen} title="Open in Classroom">
         <span className="mail-head">
           {!record.read && <span className="unread-dot" aria-label="New" />}

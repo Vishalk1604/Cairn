@@ -1,6 +1,6 @@
 import { createReminder, DAY, HOUR, MINUTE, type InboxRecord } from '@cairn/core'
 import type { AccountsDoc, InboxSettings, NoteRepository, ReaderDoc, ReminderRepository, SettingName } from '@cairn/sync'
-import type { InboxBackend, InboxHost } from '@cairn/ui'
+import type { CourseSettings, InboxBackend, InboxHost } from '@cairn/ui'
 import type { Preview } from './app/CairnProvider'
 import type { DesktopPlatform } from './platform'
 import { webPlatform } from './platform/web'
@@ -88,7 +88,7 @@ const records: InboxRecord[] = [
   },
 ]
 
-const settings: { accounts: AccountsDoc; reader: ReaderDoc; inbox: InboxSettings } = {
+const settings: { accounts: AccountsDoc; reader: ReaderDoc; inbox: InboxSettings; courses: CourseSettings } = {
   accounts: {
     accounts: [
       { email: ME, role: 'owner', services: ['drive', 'mail'], watch: { mail: true, classroom: false } },
@@ -100,9 +100,11 @@ const settings: { accounts: AccountsDoc; reader: ReaderDoc; inbox: InboxSettings
   // ?preview=paused shows what the apps say when the Worker has stopped checking.
   reader: { checkedAt: now - (new URLSearchParams(location.search).get('preview') === 'paused' ? 47 : 4) * MINUTE, ai: { model: 'GPT-OSS 20B' } },
   inbox: { autoTasks: true, timeZone: 'Asia/Kolkata' },
+  courses: { colors: { c2: 'pink' } },
 }
 
 function backend(): InboxBackend {
+  const settingWatchers: (() => void)[] = []
   const inbox = new Map(records.map((r) => [r.id, r]))
   const watchers = new Set<(records: InboxRecord[]) => void>()
   return {
@@ -117,10 +119,16 @@ function backend(): InboxBackend {
     },
     watchSetting<T>(_uid: string, name: SettingName, onChange: (value: T | null) => void) {
       onChange(settings[name] as T)
+      settingWatchers.push(() => onChange(structuredClone(settings[name]) as T))
       return () => {}
     },
     async writeSetting(_uid, name, value) {
-      Object.assign(settings[name], value)
+      const current = settings[name] as unknown as Record<string, unknown>
+      // Merged a level deep, as Firestore merges a map.
+      for (const [key, v] of Object.entries(value)) {
+        current[key] = v && typeof v === 'object' && !Array.isArray(v) ? { ...(current[key] as object), ...v } : v
+      }
+      for (const w of settingWatchers) w()
     },
   }
 }
@@ -139,6 +147,10 @@ export const user: Preview = {
       createReminder({ title: 'Submit lab 3 report', dueAt: at(-2), priority: 'high' }, { userId: 'local', now, id: 'preview-1' }),
       createReminder({ title: 'Read chapter 5 for the quiz', dueAt: at(5) }, { userId: 'local', now, id: 'preview-2' }),
       createReminder({ title: 'Register for HackMIT', dueAt: at(72), tags: ['hackathon'] }, { userId: 'local', now, id: 'preview-3' }),
+      createReminder(
+        { title: 'Lab 4: normalisation', dueAt: now + 2 * DAY, allDay: true, courseId: 'c1', source: 'classroom', sourceRef: 'w1', tags: ['classroom'] },
+        { userId: 'local', now, id: 'classroom-w1' },
+      ),
     ])
   },
 }

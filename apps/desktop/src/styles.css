@@ -2261,3 +2261,78 @@ dialog.confirm {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Course colours ──────────────────────────────────────────────────── */
+
+/* A class's colour down the card's edge, beside the urgency colour rather
+   than instead of it; the class is named on the card as well. */
+.task.course,
+.mail.course {
+  overflow: hidden;
+}
+
+.task.course::before,
+.mail.course::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--course);
+}
+
+.course-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  color: var(--muted);
+}
+
+.course-chip::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--course);
+}
+
+.palette-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: conic-gradient(#e69f00 0 33%, #56b4e9 0 66%, #1fb386 0);
+}
+
+.course-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.course-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.course-color-name {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+.swatch.on {
+  border-color: var(--fg);
+}

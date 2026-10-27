@@ -30,8 +30,10 @@ import {
   type WorkerClient,
 } from '@cairn/sync'
 import { accountsOf, reading } from './accounts'
+import { coursesIn, type CourseColorOverrides, type CourseEntry, type CourseSettings } from './courseColors'
 import { formatAgo } from './format'
 import type { Platform } from './platform'
+import type { CourseColorKey } from './tokens'
 
 /**
  * The shared inbox, as each app shows it.
@@ -98,6 +100,10 @@ export interface InboxState {
   autoTasks: boolean
   /** The time zone the Worker keeps notifications in, as the phone set it. */
   timeZone?: string
+  /** Every Classroom course seen, newest post first. */
+  courses: CourseEntry[]
+  /** The colours picked for courses, on either device. */
+  courseColors: CourseColorOverrides
 }
 
 export interface InboxContext {
@@ -133,6 +139,8 @@ const SEEN_KEY = 'cairn.inbox.seenAt'
 const SEEN_CLASSROOM_KEY = 'cairn.classroom.seenAt'
 const ANNOUNCED_KEY = 'cairn.inbox.announced'
 const CACHE_KEY = 'cairn.inbox.cache'
+/** Kept on the device as well, so the widgets colour courses without asking the cloud. */
+export const COURSE_COLORS_KEY = 'cairn.courses.colors'
 const KEEP_ANNOUNCED = 300
 
 async function load<T>(platform: Platform, key: string, fallback: T): Promise<T> {
@@ -175,6 +183,7 @@ export class InboxEngine {
   private reader: ReaderDoc | null = null
   private accounts: AccountsDoc | null = null
   private settings: InboxSettings = {}
+  private courseColors: CourseColorOverrides = {}
   private seenAt = 0
   private seenClassroomAt = 0
   private announced: { since: number; ids: string[] } = { since: 0, ids: [] }
@@ -212,6 +221,7 @@ export class InboxEngine {
         save(p, ANNOUNCED_KEY, this.announced)
       }
       if (this.records.length === 0) this.records = await load<InboxRecord[]>(p, CACHE_KEY, [])
+      this.courseColors = await load<CourseColorOverrides>(p, COURSE_COLORS_KEY, {})
       this.emit()
     })()
     return this.loaded
@@ -284,6 +294,16 @@ export class InboxEngine {
         'inbox',
         (value) => {
           this.settings = value ?? {}
+          this.emit()
+        },
+        onError,
+      ),
+      b.watchSetting<CourseSettings>(
+        uid,
+        'courses',
+        (value) => {
+          this.courseColors = value?.colors ?? {}
+          save(this.platform, COURSE_COLORS_KEY, this.courseColors)
           this.emit()
         },
         onError,
@@ -371,6 +391,8 @@ export class InboxEngine {
       senders,
       autoTasks: this.settings.autoTasks === true,
       ...(this.settings.timeZone ? { timeZone: this.settings.timeZone } : {}),
+      courses: coursesIn(records),
+      courseColors: this.courseColors,
     }
   }
 
@@ -449,6 +471,20 @@ export class InboxEngine {
     this.settings = { ...this.settings, profile: value }
     this.emit()
     this.send(this.backend.writeSetting(uid, 'inbox', { profile: value, updatedAt: this.now() }))
+  }
+
+  /**
+   * A course's colour, on every device; 'auto' goes back to the one its id
+   * gives it. Merged by course, so two devices picking for different courses
+   * keep both.
+   */
+  async setCourseColor(courseId: string, color: CourseColorKey | 'auto'): Promise<void> {
+    const uid = this.watching
+    if (!uid) return
+    this.courseColors = { ...this.courseColors, [courseId]: color }
+    save(this.platform, COURSE_COLORS_KEY, this.courseColors)
+    this.emit()
+    this.send(this.backend.writeSetting(uid, 'courses', { colors: { [courseId]: color }, updatedAt: this.now() }))
   }
 
   /** The phone's time zone, so the Worker's evening and morning notifications keep its hours. */

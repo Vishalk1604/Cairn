@@ -1,19 +1,21 @@
 import { dueOf, inboxTaskId, type InboxRecord } from '@cairn/core'
 import type { ReminderQuery } from '@cairn/sync'
-import { formatAgo, formatDue, readerStatus } from '@cairn/ui'
+import { COURSE_COLORS, formatAgo, formatDue, readerStatus } from '@cairn/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshControl, ScrollView, Text, View } from 'react-native'
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated'
 import { AccountChips, FilterChip } from '../components/Chips'
+import { CourseColorSheet } from '../components/CourseColorSheet'
 import { Switch } from '../components/Switch'
 import { PausedNotice } from '../components/PausedNotice'
 import { SyncButton } from '../components/SyncButton'
 import { openMessage } from '../platform/mail'
 import { useCairn } from '../state/context'
+import { useCourses } from '../state/courses'
 import { useObserved } from '../state/hooks'
 import { useInbox } from '../state/inbox'
 import { useToast } from '../state/toast'
-import { space, useColors } from '../theme'
+import { space, useColors, useScheme } from '../theme'
 import { ClassIcon, GearIcon } from '../ui/icons'
 import { appear, fadeIn, fadeOut, reflow, Tap } from '../ui/motion'
 import { styles } from './InboxScreen'
@@ -30,6 +32,7 @@ type Tab = 'work' | 'announcement'
  */
 export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
   const c = useColors()
+  const scheme = useScheme()
   const toast = useToast()
   const { reminders } = useCairn()
   const inbox = useInbox()
@@ -37,6 +40,7 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
   const taskIds = useMemo(() => new Set(tasks.map((t) => t.id)), [tasks])
   const [tab, setTab] = useState<Tab>('work')
   const [account, setAccount] = useState<string | null>(null)
+  const [colouring, setColouring] = useState(false)
   const now = Date.now()
 
   const { markSeen } = inbox
@@ -52,6 +56,15 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
     <View style={styles.bar}>
       {inbox.signedIn && <SyncButton busy={inbox.refreshing} at={inbox.checkedAt} onPress={() => void inbox.refresh()} label="Check Classroom now" caption="after" />}
       <View style={styles.spacer} />
+      {inbox.courses.length > 0 && (
+        <Tap onPress={() => setColouring(true)} scaleTo={0.92} style={styles.icon} accessibilityLabel="Course colours">
+          <View style={{ flexDirection: 'row', gap: 3 }}>
+            {(['orange', 'sky', 'green'] as const).map((key) => (
+              <View key={key} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: COURSE_COLORS[key][scheme] }} />
+            ))}
+          </View>
+        </Tap>
+      )}
       <Tap onPress={onSettings} scaleTo={0.92} style={styles.icon} accessibilityLabel="Settings">
         <GearIcon color={c.fg} />
       </Tap>
@@ -148,6 +161,7 @@ export function ClassroomScreen({ onSettings }: { onSettings: () => void }) {
         )}
         <Text style={[styles.hint, { color: c.faint }]}>{readerStatus(inbox, now)}</Text>
       </ScrollView>
+      {colouring && <CourseColorSheet onClose={() => setColouring(false)} />}
     </View>
   )
 }
@@ -170,6 +184,7 @@ function PostCard({
   onHide: () => void
 }) {
   const c = useColors()
+  const courses = useCourses()
   const post = record.classroom!
   const due = dueOf(record)
   const summary = record.triage?.summary ?? record.snippet
@@ -180,7 +195,7 @@ function PostCard({
         onLongPress={onHide}
         scaleTo={0.985}
         haptic="none"
-        style={[styles.card, { backgroundColor: c.surface, opacity: post.submitted ? 0.6 : 1 }]}
+        style={[styles.card, { backgroundColor: c.surface, opacity: post.submitted ? 0.6 : 1, borderLeftWidth: 4, borderLeftColor: courses.color(post.courseId) }]}
         accessibilityHint="Opens in Classroom. Long-press to hide."
       >
         <View style={styles.cardHead}>

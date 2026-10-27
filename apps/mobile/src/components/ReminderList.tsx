@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import Animated, { FadeOutLeft, LayoutAnimationConfig, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useActions } from '../state/actions'
+import { useCourses } from '../state/courses'
 import { radius, space, useColors } from '../theme'
 import { Glyph } from '../ui/icons'
 import { appear, duration, ease, feel, reflow, settle, Tap } from '../ui/motion'
@@ -71,11 +72,13 @@ function ReminderRow({
 }) {
   const c = useColors()
   const actions = useActions()
+  const courses = useCourses()
+  const course = courses.color(r.courseId)
   const token = URGENCY[level]
   const [ticking, setTicking] = useState(false)
   const fill = useSharedValue(0)
   const snoozed = r.status === 'snoozed' && (r.snoozedUntil ?? 0) > now
-  const meta = [formatReminderWhen(r, now), r.priority === 'high' ? 'High priority' : null, ...r.tags.map((t) => `#${t}`)].filter(Boolean).join(' · ')
+  const meta = [formatReminderWhen(r, now), courses.name(r.courseId), r.priority === 'high' ? 'High priority' : null, ...r.tags.map((t) => `#${t}`)].filter(Boolean).join(' · ')
 
   useEffect(() => {
     fill.value = withTiming(ticking ? 1 : 0, settle)
@@ -92,6 +95,8 @@ function ReminderRow({
   return (
     <Animated.View entering={appear} exiting={FadeOutLeft.duration(duration.medium).easing(ease.exit)} layout={reflow}>
       <Tap onPress={() => onEdit(r)} scaleTo={0.98} style={[styles.row, { backgroundColor: c.surface }]} accessibilityLabel={`${r.title}, ${token.label}`}>
+        {/* Coursework carries its class's colour down its edge; the class is named in the line below too. */}
+        {course ? <View style={[styles.course, { backgroundColor: course }]} /> : null}
         <Tap onPress={complete} scaleTo={0.92} haptic="none" hitSlop={10} style={[styles.circle, { borderColor: token.color }]} accessibilityLabel={`Complete ${r.title}`}>
           <Animated.View style={[styles.fill, { backgroundColor: token.color }, check]}>
             <Glyph char="✓" color="#000" size={13} weight="700" />
@@ -129,7 +134,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingTop: space.lg, paddingBottom: space.sm, paddingHorizontal: space.xs },
   dot: { width: 8, height: 8, borderRadius: 4 },
   headerText: { fontWeight: '700', fontSize: 15, flex: 1 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg, marginBottom: space.sm, borderRadius: radius.card + 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg, marginBottom: space.sm, borderRadius: radius.card + 2, overflow: 'hidden' },
+  course: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   circle: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   fill: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   main: { flex: 1, gap: 3 },

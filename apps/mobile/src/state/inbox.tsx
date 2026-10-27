@@ -1,5 +1,5 @@
 import type { InboxRecord, SenderRule } from '@cairn/core'
-import { InboxEngine, type InboxState } from '@cairn/ui'
+import { InboxEngine, type CourseColorKey, type InboxState } from '@cairn/ui'
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { AppState } from 'react-native'
 import { notificationPermission, type PermissionState } from '../platform/notifications'
@@ -17,6 +17,7 @@ export interface Inbox extends InboxState {
   markSeen(tab: 'inbox' | 'classroom'): void
   setProfile(profile: string): Promise<void>
   setAutoTasks(on: boolean): Promise<void>
+  setCourseColor(courseId: string, color: CourseColorKey | 'auto'): Promise<void>
 }
 
 const Context = createContext<Inbox | null>(null)
@@ -68,6 +69,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
       markSeen: (tab) => engine.markSeen(tab),
       setProfile: (profile) => engine.setProfile(profile),
       setAutoTasks: (on) => engine.setAutoTasks(on),
+      setCourseColor: (courseId, color) => engine.setCourseColor(courseId, color),
     }),
     [state, engine],
   )

@@ -100,13 +100,15 @@ service cloud.firestore {
 
     // A few small settings, the person's own: which accounts the Worker reads
     // and for what, and when it last looked (both written by the Worker, as
-    // the person, under these same rules), and their rules for the inbox.
+    // the person, under these same rules), their rules for the inbox, and the
+    // colours they picked for their Classroom courses.
     // Never a token or an AI key: those stay in the Worker, sealed, and are
     // refused here by name.
     match /users/{userId}/settings/{name} {
-      allow read, delete: if signedInAs(userId) && name in ['accounts', 'reader', 'inbox'];
+      allow read, delete: if signedInAs(userId) && name in ['accounts', 'reader', 'inbox', 'courses'];
       allow create, update: if signedInAs(userId)
-        && name in ['accounts', 'reader', 'inbox']
+        && name in ['accounts', 'reader', 'inbox', 'courses']
+        && (name != 'courses' || request.resource.data.colors is map)
         && !request.resource.data.keys().hasAny(['refreshToken', 'accessToken', 'idToken', 'key', 'apiKey']);
     }
   }

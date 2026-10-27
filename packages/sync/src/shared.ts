@@ -15,7 +15,7 @@ import type { Unsubscribe } from './repository'
  */
 
 /** The small documents under users/{uid}/settings. */
-export type SettingName = 'accounts' | 'reader' | 'inbox'
+export type SettingName = 'accounts' | 'reader' | 'inbox' | 'courses'
 
 const inbox = (uid: string) => collection(cairnFirestore(), 'users', uid, 'inbox')
 const setting = (uid: string, name: SettingName) => doc(cairnFirestore(), 'users', uid, 'settings', name)

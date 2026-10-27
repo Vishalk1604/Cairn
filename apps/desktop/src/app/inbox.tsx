@@ -1,6 +1,6 @@
 import type { InboxRecord, SenderRule } from '@cairn/core'
 import { gmailLink } from '@cairn/sync'
-import { InboxEngine, type InboxHost, type InboxState } from '@cairn/ui'
+import { InboxEngine, type CourseColorKey, type InboxHost, type InboxState } from '@cairn/ui'
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { useCairn } from './context'
 
@@ -15,6 +15,7 @@ export interface Inbox extends InboxState {
   markSeen(tab: 'inbox' | 'classroom'): void
   setProfile(profile: string): Promise<void>
   setAutoTasks(on: boolean): Promise<void>
+  setCourseColor(courseId: string, color: CourseColorKey | 'auto'): Promise<void>
 }
 
 const Context = createContext<Inbox | null>(null)
@@ -53,6 +54,7 @@ export function InboxProvider({ children, host }: { children: ReactNode; host?: 
       markSeen: (tab) => engine.markSeen(tab),
       setProfile: (profile) => engine.setProfile(profile),
       setAutoTasks: (on) => engine.setAutoTasks(on),
+      setCourseColor: (courseId, color) => engine.setCourseColor(courseId, color),
     }),
     [state, engine, platform],
   )

@@ -110,6 +110,22 @@ afterEach(() => {
 })
 
 describe('InboxEngine', () => {
+  it('shares course colours between devices, and keeps them on each for the widgets', async () => {
+    const cloud = new FakeCloud()
+    cloud.worker([record('classroom-work-w1', { classroom: { kind: 'work', courseId: 'c1', course: 'DBMS', workId: 'w1' } })])
+    const clock = { now: 5000 }
+    const phone = await device(cloud, clock)
+    const laptop = await device(cloud, clock)
+    expect(phone.engine.getState().courses).toEqual([{ courseId: 'c1', course: 'DBMS' }])
+
+    await phone.engine.setCourseColor('c1', 'pink')
+    await laptop.engine.setCourseColor('c2', 'sky')
+    expect(laptop.engine.getState().courseColors).toEqual({ c1: 'pink', c2: 'sky' })
+    expect(phone.engine.getState().courseColors).toEqual({ c1: 'pink', c2: 'sky' })
+    await phone.engine.setCourseColor('c1', 'auto')
+    expect(laptop.engine.getState().courseColors.c1).toBe('auto')
+  })
+
   it('shows what the Worker wrote, mail and Classroom apart, with the accounts it reads', async () => {
     const cloud = new FakeCloud()
     cloud.setting('accounts', accounts)
