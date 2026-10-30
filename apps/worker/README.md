@@ -206,6 +206,20 @@ Within ten minutes `settings/reader` in Firestore gets a `checkedAt`, and the
 apps say when mail was last checked. If it never does, `wrangler tail` shows
 why.
 
+## Who can sign in
+
+Cairn is invite-only. Only an address on the invite list can sign in as a new person, and the cron only checks people whose own address is on it. Invite the Google account someone signs in with first, on their phone; a college account they add later joins them and needs no invite. Someone without an invite is sent back to the app with `not_invited`, and Google's permission is handed straight back.
+
+From the repository root (it uses your `wrangler login`):
+
+```sh
+node scripts/invite.mjs add friend@gmail.com "met at HackMIT"
+node scripts/invite.mjs remove friend@gmail.com
+node scripts/invite.mjs list
+```
+
+Removing someone stops their checks at once and keeps them from signing in again; it does not delete their notes. The list lives in the D1 table `invites` (migration `0002_invites.sql`, which also invited everyone already signed in). Apply it with `npx wrangler d1 migrations apply cairn --remote` before deploying a Worker that checks it.
+
 ## What it answers
 
 | Request | Who | What |

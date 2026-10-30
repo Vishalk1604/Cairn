@@ -12,7 +12,8 @@
     "dev:mobile": "pnpm --filter @cairn/mobile start",
     "test": "turbo run test",
     "test:rules": "firebase emulators:exec --only firestore --project demo-cairn \"vitest run --config vitest.rules.config.ts\"",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "invite": "node scripts/invite.mjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^6.0.0",

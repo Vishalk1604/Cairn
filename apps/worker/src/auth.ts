@@ -5,7 +5,7 @@ import { openJson, randomToken, readClaim, sealJson, sha256, signClaim } from '.
 import { APP_SCHEME, USER_LIMIT } from './env'
 import { signInWithGoogle, type FirebaseSession } from './firebase'
 import { Firestore } from './firestore'
-import { callbackUrl, scopesFor, servicesOf } from './google'
+import { callbackUrl, revoke, scopesFor, servicesOf } from './google'
 import { HttpError, json, page, readBody, redirect } from './http'
 import { sealRefresh, type Ctx } from './session'
 import type { AccountRow } from './store'
@@ -129,6 +129,14 @@ export async function finishAuth(ctx: Ctx, url: URL): Promise<Response> {
   }
   if (!tokens.idToken) return redirect(back(flow.r, { error: 'no_identity', state: flow.s }))
   const identity = readIdToken(tokens.idToken)
+
+  // Signing in as a new person needs an invite. A college account joining
+  // someone already signed in (flow.u) does not: that person was invited.
+  if (!flow.u && !(await store.invited(identity.email))) {
+    // Nothing is kept, and Google's permission goes straight back.
+    await revoke(tokens.refreshToken ?? tokens.accessToken, ctx.net.fetch)
+    return redirect(back(flow.r, { error: 'not_invited', state: flow.s }))
+  }
 
   // Signing in: Firebase says which person this Google account is.
   let session: FirebaseSession | null = null

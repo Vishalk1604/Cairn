@@ -120,6 +120,31 @@ describe('signing in through the Worker', () => {
     expect((await store.account('uid-me', 'me@gmail.com'))!.scopes).toContain(GMAIL)
   })
 
+  it('lets only invited people sign in, and keeps nothing of anyone else', async () => {
+    store.invites = new Set(['me@gmail.com'])
+    const { location } = await consent({ email: 'stranger@gmail.com', scopes: [...IDENTITY, DRIVE], want: 'drive' })
+    expect(location.searchParams.get('error')).toBe('not_invited')
+    expect(location.searchParams.get('state')).toBe('app-state')
+    expect(location.searchParams.get('code')).toBeNull()
+    expect(store.users.size).toBe(0)
+    expect(store.rows.size).toBe(0)
+    // Google's permission was handed back.
+    expect(cloud.calls.some((c) => c.url.includes('oauth2.googleapis.com/revoke'))).toBe(true)
+
+    cloud.codes.clear()
+    const invited = await consent({ email: 'Me@Gmail.com', scopes: [...IDENTITY, DRIVE], want: 'drive' })
+    expect(invited.location.searchParams.get('code')).toBeTruthy()
+  })
+
+  it('needs no invite for a college account joining someone invited', async () => {
+    store.invites = new Set(['me@gmail.com'])
+    await consent({ email: 'me@gmail.com', scopes: [...IDENTITY, DRIVE], want: 'drive' })
+    const ticket = ((await (await signedIn('uid-me', '/auth/ticket', { method: 'POST' })).json()) as { ticket: string }).ticket
+    const { location } = await consent({ email: 'me@college.edu', scopes: [...IDENTITY, GMAIL], want: 'mail', ticket })
+    expect(location.searchParams.get('code')).toBeTruthy()
+    expect(await store.account('uid-me', 'me@college.edu')).toMatchObject({ role: 'source' })
+  })
+
   it('refuses links that would send the code anywhere else', async () => {
     const response = await call(`/auth/start?redirect=${encodeURIComponent('https://evil.example')}&state=s&challenge=${'a'.repeat(43)}`)
     expect(response.status).toBe(400)

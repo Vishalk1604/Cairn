@@ -1,5 +1,5 @@
 import type { NoteQuery } from '@cairn/sync'
-import { accountProblem, CLASSROOM_FROM_EMAIL, describeReading, readerStatus, recycleBin, type AiStatus, type WorkerAccount } from '@cairn/ui'
+import { ACCESS_URL, accountProblem, CLASSROOM_FROM_EMAIL, NOT_INVITED, describeReading, readerStatus, recycleBin, type AiStatus, type WorkerAccount } from '@cairn/ui'
 import { useEffect, useState } from 'react'
 import { useClassroomFiles } from '../app/classroomFiles'
 import { useCairn } from '../app/context'
@@ -46,7 +46,7 @@ function Managed() {
 
 /** The one sign-in this computer has. */
 function AccountSection() {
-  const { auth, email, signIn, signOut, sync } = useCairn()
+  const { auth, email, platform, signIn, signOut, sync } = useCairn()
   const inbox = useInbox()
   if (auth.status !== 'synced' || !email) {
     return (
@@ -59,6 +59,11 @@ function AccountSection() {
           detail={auth.status === 'error' ? auth.message : auth.status === 'connecting' ? 'Finish signing in in your browser…' : 'Google asks once, in your browser.'}
           tone={auth.status === 'error' ? 'danger' : undefined}
         >
+          {auth.status === 'error' && auth.message === NOT_INVITED && (
+            <button type="button" className="button quiet-button" onClick={() => void platform.openLink(ACCESS_URL)}>
+              Ask on LinkedIn
+            </button>
+          )}
           <button type="button" className="accent-button" disabled={auth.status === 'connecting'} onClick={() => void signIn()}>
             {auth.status === 'error' ? 'Try again' : 'Sign in with Google'}
           </button>

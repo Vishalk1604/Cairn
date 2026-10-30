@@ -33,7 +33,13 @@ export class ConnectError extends Error {
   }
 }
 
+/** Where someone without an invite asks for one. */
+export const ACCESS_URL = 'https://www.linkedin.com/in/vishalkarun/'
+/** Shown when an account that has no invite tries to sign in. */
+export const NOT_INVITED = 'Cairn is invite-only for now. Ask Vishal Karun on LinkedIn for early access, then sign in again with this account.'
+
 const WORKER_ERRORS: Record<string, string> = {
+  not_invited: NOT_INVITED,
   expired: 'That sign-in took too long. Try again.',
   exchange_failed: 'Google did not finish the sign-in. Try again.',
   no_identity: 'Google did not say which account that was. Try again.',

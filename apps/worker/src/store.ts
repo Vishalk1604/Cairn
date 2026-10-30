@@ -44,7 +44,9 @@ export interface Store {
   /** Creates the person, or updates their address. */
   putUser(uid: string, email: string, now: number): Promise<void>
   countUsers(): Promise<number>
-  /** Everyone with an account to read, for the cron. */
+  /** Whether this address may sign in as a new person (Cairn is invite-only). */
+  invited(email: string): Promise<boolean>
+  /** Everyone with an account to read and an invite, for the cron. */
   userIds(): Promise<string[]>
   setAi(uid: string, sealed: string | null): Promise<void>
   setTimeZone(uid: string, zone: string): Promise<void>
@@ -148,8 +150,16 @@ export class D1Store implements Store {
     return row?.n ?? 0
   }
 
+  async invited(email: string): Promise<boolean> {
+    const row = await this.db.prepare('SELECT 1 AS yes FROM invites WHERE email = ?').bind(email.trim().toLowerCase()).first<{ yes: number }>()
+    return !!row
+  }
+
   async userIds(): Promise<string[]> {
-    const { results } = await this.db.prepare('SELECT DISTINCT uid FROM accounts ORDER BY uid').all<{ uid: string }>()
+    // Someone taken off the invite list stops being checked at once.
+    const { results } = await this.db
+      .prepare('SELECT DISTINCT a.uid FROM accounts a JOIN users u ON u.uid = a.uid JOIN invites i ON i.email = lower(u.email) ORDER BY a.uid')
+      .all<{ uid: string }>()
     return results.map((r) => r.uid)
   }
 

@@ -1,6 +1,6 @@
 import { DEFAULT_PROFILE, PROFILE_LIMIT } from '@cairn/core'
 import { AiError, checkAiKey, modelsFor, readAiSetup } from '@cairn/sync'
-import { reading, type WorkerAccount } from '@cairn/ui'
+import { ACCESS_URL, NOT_INVITED, reading, type WorkerAccount } from '@cairn/ui'
 import { useState, type ReactNode } from 'react'
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated from 'react-native-reanimated'
@@ -115,7 +115,8 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
                 <Primary label="Sign in with Google" busy={busy === 'signin' || cairn.auth.status === 'connecting'} onPress={() => void run('signin', cairn.signIn)} />
               )}
               {cairn.auth.status === 'error' && <Text style={[styles.problem, { color: c.danger }]}>{cairn.auth.message}</Text>}
-              <Text style={[styles.small, { color: c.faint }]}>Google may say it hasn't verified Cairn: choose Advanced, then Go to Cairn.</Text>
+              {cairn.auth.status === 'error' && cairn.auth.message === NOT_INVITED && <Secondary label="Ask for access on LinkedIn" onPress={() => void Linking.openURL(ACCESS_URL)} />}
+              <Text style={[styles.small, { color: c.faint }]}>Cairn is invite-only for now. Google may say it hasn't verified Cairn: choose Advanced, then Go to Cairn.</Text>
             </>
           )}
 

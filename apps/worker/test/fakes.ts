@@ -10,6 +10,8 @@ export class MemoryStore implements Store {
   codes = new Map<string, { payload: string; expiresAt: number }>()
   push = new Map<string, { uid: string; platform: string; updatedAt: number }>()
   metas = new Map<string, { value: string; expiresAt: number }>()
+  /** null: everyone is invited, so tests that are not about invites need not set any. */
+  invites: Set<string> | null = null
 
   async user(uid: string) {
     const u = this.users.get(uid)
@@ -22,8 +24,12 @@ export class MemoryStore implements Store {
   async countUsers() {
     return this.users.size
   }
+  async invited(email: string) {
+    return this.invites === null || this.invites.has(email.trim().toLowerCase())
+  }
   async userIds() {
-    return [...new Set([...this.rows.values()].map((r) => r.uid))].sort()
+    const invited = (uid: string) => this.invites === null || this.invites.has((this.users.get(uid)?.email ?? '').toLowerCase())
+    return [...new Set([...this.rows.values()].map((r) => r.uid))].filter(invited).sort()
   }
   async setAi(uid: string, sealed: string | null) {
     this.users.get(uid)!.ai = sealed

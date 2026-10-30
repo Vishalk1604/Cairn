@@ -17,7 +17,7 @@ try {
 
 function fakeD1(): D1Database {
   const db = new sqlite.DatabaseSync(':memory:')
-  db.exec(readFileSync(new URL('../migrations/0001_init.sql', (import.meta as unknown as { url: string }).url), 'utf8'))
+  for (const name of ['0001_init.sql', '0002_invites.sql']) db.exec(readFileSync(new URL(`../migrations/${name}`, (import.meta as unknown as { url: string }).url), 'utf8'))
   const statement = (sql: string, args: unknown[] = []) => ({
     bind: (...next: unknown[]) => statement(sql, next),
     first: async () => (db.prepare(sql).get(...(args as never[])) as unknown) ?? null,
@@ -38,7 +38,8 @@ function fakeD1(): D1Database {
 
 describe.skipIf(!sqlite)('D1Store', () => {
   it('keeps people and their accounts', async () => {
-    const store = new D1Store(fakeD1())
+    const d1 = fakeD1()
+    const store = new D1Store(d1)
     await store.putUser('u1', 'me@gmail.com', 1)
     await store.putUser('u1', 'me@gmail.com', 2)
     expect(await store.countUsers()).toBe(1)
@@ -47,9 +48,28 @@ describe.skipIf(!sqlite)('D1Store', () => {
     await store.putAccount({ ...row, email: 'me@college.edu', role: 'source', createdAt: 2 })
     expect(await store.account('u1', 'me@gmail.com')).toEqual(row)
     expect((await store.accounts('u1')).map((a) => a.email)).toEqual(['me@gmail.com', 'me@college.edu'])
+    // Only people with an invite are checked.
+    expect(await store.userIds()).toEqual([])
+    await d1.prepare("INSERT INTO invites (email, created_at) VALUES ('me@gmail.com', 1)").run()
     expect(await store.userIds()).toEqual(['u1'])
     await store.deleteAccount('u1', 'me@college.edu')
     expect(await store.accounts('u1')).toHaveLength(1)
+  })
+
+  it('knows who is invited, ignoring case, and keeps everyone already signed in', async () => {
+    const d1 = fakeD1()
+    const store = new D1Store(d1)
+    await d1.prepare("INSERT INTO invites (email, created_at) VALUES ('friend@gmail.com', 1)").run()
+    expect(await store.invited('Friend@Gmail.com ')).toBe(true)
+    expect(await store.invited('stranger@gmail.com')).toBe(false)
+
+    // The migration gives everyone already in users an invite.
+    const db = new sqlite.DatabaseSync(':memory:')
+    const migration = (name: string) => readFileSync(new URL(`../migrations/${name}`, (import.meta as unknown as { url: string }).url), 'utf8')
+    db.exec(migration('0001_init.sql'))
+    db.prepare('INSERT INTO users (uid, email, created_at) VALUES (?, ?, ?)').run('u1', 'Early@Gmail.com', 1)
+    db.exec(migration('0002_invites.sql'))
+    expect(db.prepare('SELECT email FROM invites').all()).toEqual([{ email: 'early@gmail.com' }])
   })
 
   it('lets one run at a time hold a person', async () => {
