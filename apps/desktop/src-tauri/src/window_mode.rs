@@ -147,7 +147,6 @@ pub fn to_widget<R: Runtime>(window: &WebviewWindow<R>) {
     let place = window.state::<WidgetPlace>();
     *place.full.lock().unwrap() = false;
     let _ = window.unmaximize();
-    let _ = window.set_skip_taskbar(true);
     let remembered = *place.bounds.lock().unwrap();
     let saved = remembered.or_else(|| load(window.app_handle())).filter(|b| visible(window, b));
     if let Some(b) = saved.or_else(|| first_place(window)) {
@@ -196,7 +195,6 @@ pub fn window_full<R: Runtime>(window: WebviewWindow<R>) {
     remember(&window);
     persist(window.app_handle());
     *window.state::<WidgetPlace>().full.lock().unwrap() = true;
-    let _ = window.set_skip_taskbar(false);
     let _ = window.maximize();
     let _ = window.set_focus();
 }

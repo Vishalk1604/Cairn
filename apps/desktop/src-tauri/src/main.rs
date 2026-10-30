@@ -35,16 +35,17 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// The tray icon's click: shows Cairn, or tucks it away again if it was in
-/// front, the way the clock and volume flyouts behave. Buried under other
-/// windows, it is brought forward instead.
+/// The tray icon's click: shows Cairn, or minimizes it to its taskbar button
+/// again if it was in front. Buried under other windows, it is brought
+/// forward instead. It keeps its taskbar button in both shapes, so Alt+Tab,
+/// Snap and tiling tools treat it like any other window.
 pub fn toggle_main_window<R: Runtime>(app: &AppHandle<R>) {
     let Some(window) = app.get_webview_window("main") else { return };
     let showing = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
     if showing && window_mode::was_in_front(&window) {
         window_mode::remember(&window);
         window_mode::persist(app);
-        let _ = window.hide();
+        let _ = window.minimize();
     } else {
         show_main_window(app);
     }
