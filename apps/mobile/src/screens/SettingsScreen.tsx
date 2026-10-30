@@ -18,7 +18,7 @@ import { Glyph } from '../ui/icons'
 import { fadeIn, fadeOut, sheetIn, sheetOut, Tap } from '../ui/motion'
 import { RecycleBinScreen } from './RecycleBinScreen'
 
-const SITE = 'https://cairn-vishalk.web.app'
+const SITE = 'https://getcairn.web.app'
 /** Where the key comes from. Any model page there gives the same kind of key. */
 export const NVIDIA_PAGE = 'https://build.nvidia.com/openai/gpt-oss-20b'
 

@@ -242,6 +242,14 @@ code {
   stroke-linejoin: round;
 }
 
+/* Brand marks (LinkedIn, GitHub) are solid shapes, not outlines. */
+.ico-fill {
+  fill: currentColor;
+  stroke: none;
+  width: 18px;
+  height: 18px;
+}
+
 .ico-lg {
   width: 30px;
   height: 30px;

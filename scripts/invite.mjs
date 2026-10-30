@@ -33,11 +33,8 @@ function email() {
 const quote = (text) => `'${text.replace(/'/g, "''")}'`;
 
 function sql(statement) {
-  const run = spawnSync("npx", ["wrangler", "d1", "execute", "cairn", "--remote", "--json", "--command", JSON.stringify(statement)], {
-    cwd: WORKER,
-    encoding: "utf8",
-    shell: true,
-  });
+  // One command line (addresses and notes were checked above), so Node runs it through the shell without a warning.
+  const run = spawnSync(`npx wrangler d1 execute cairn --remote --json --command ${JSON.stringify(statement)}`, { cwd: WORKER, encoding: "utf8", shell: true });
   const text = run.stdout ?? "";
   const start = text.indexOf("[");
   if (run.status !== 0 || start < 0) {

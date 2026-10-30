@@ -3,15 +3,20 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "hosting": {
-    "public": "apps/site/public",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "cleanUrls": true
-  },
+  "hosting": [
+    {
+      "site": "getcairn",
+      "public": "apps/site/public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "cleanUrls": true
+    },
+    {
+      "site": "cairn-vishalk",
+      "public": "apps/site/public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "cleanUrls": true
+    }
+  ],
   "emulators": {
     "firestore": {
       "port": 8080

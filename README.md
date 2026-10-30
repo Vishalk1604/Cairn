@@ -118,7 +118,7 @@ packages/
 
 ## Installing
 
-Download both from the [site](https://cairn-vishalk.web.app) or the [latest release](https://github.com/Vishalk1604/Cairn/releases/latest); the file names never change, so these links always fetch the newest:
+Download both from the [site](https://getcairn.web.app) or the [latest release](https://github.com/Vishalk1604/Cairn/releases/latest); the file names never change, so these links always fetch the newest:
 
 - [Cairn-android.apk](https://github.com/Vishalk1604/Cairn/releases/latest/download/Cairn-android.apk)
 - [Cairn-windows-setup.exe](https://github.com/Vishalk1604/Cairn/releases/latest/download/Cairn-windows-setup.exe)

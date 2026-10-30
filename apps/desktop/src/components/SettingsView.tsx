@@ -13,7 +13,7 @@ import { ProfileDialog } from './ProfileDialog'
 import { LinkRow, Row, Section, Switch } from './SettingsParts'
 import { SyncButton } from './SyncButton'
 
-const SITE = 'https://cairn-vishalk.web.app'
+const SITE = 'https://getcairn.web.app'
 const WITH_DELETED: NoteQuery = { includeDeleted: true }
 
 /**
