@@ -56,8 +56,10 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         let _ = window.set_size(PhysicalSize::new(b.width, b.height));
         let _ = window.set_position(PhysicalPosition::new(b.x, b.y));
     }
-    onto_desktop(&window);
+    // Shown first: showing re-applies the window's own styles, which would
+    // take away the child style the desktop needs if it came after.
     window.show()?;
+    onto_desktop(&window);
     Ok(())
 }
 
@@ -69,9 +71,11 @@ pub fn close<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Settings → This computer → Pin to desktop.
+/// Settings → This computer → Pin to desktop. Async, because building a
+/// window from a synchronous command deadlocks on Windows: the window was
+/// made but never placed or shown.
 #[tauri::command]
-pub fn desk_pin<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<bool, String> {
+pub async fn desk_pin<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<bool, String> {
     window_mode::set_pinned(&app, enabled);
     if enabled {
         open(&app).map_err(|e| format!("Could not pin Cairn to the desktop: {e}"))?;
