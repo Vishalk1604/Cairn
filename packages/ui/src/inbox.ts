@@ -454,17 +454,23 @@ export class InboxEngine {
     this.send(this.backend.writeSetting(uid, 'inbox', { senders: { [address]: rule }, updatedAt: this.now() }))
   }
 
-  /** Opening a tab is seeing what is in it. */
+  /**
+   * Opening a tab is seeing what is in it. The Worker stamps foundAt by its own
+   * clock, which can run seconds ahead of this one, so seeing covers the newest
+   * record too; otherwise it stays unseen and every call marks it again.
+   */
   markSeen(tab: 'inbox' | 'classroom'): void {
-    const now = this.now()
-    if (tab === 'inbox') {
-      if (this.state.unseen === 0 && this.seenAt) return
-      this.seenAt = now
-      save(this.platform, SEEN_KEY, now)
-    } else {
+    const classroom = tab === 'classroom'
+    const newest = this.records.reduce((at, r) => (!!r.classroom === classroom ? Math.max(at, r.foundAt) : at), 0)
+    const seen = Math.max(this.now(), newest)
+    if (classroom) {
       if (this.state.unseenClassroom === 0 && this.seenClassroomAt) return
-      this.seenClassroomAt = now
-      save(this.platform, SEEN_CLASSROOM_KEY, now)
+      this.seenClassroomAt = seen
+      save(this.platform, SEEN_CLASSROOM_KEY, seen)
+    } else {
+      if (this.state.unseen === 0 && this.seenAt) return
+      this.seenAt = seen
+      save(this.platform, SEEN_KEY, seen)
     }
     this.emit()
   }

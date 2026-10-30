@@ -146,6 +146,22 @@ describe('InboxEngine', () => {
     expect(state.ai).toEqual({ on: true, preferred: 'GPT-OSS 20B' })
   })
 
+  it('sees what the Worker found even when its clock runs ahead of this one', async () => {
+    const cloud = new FakeCloud()
+    const clock = { now: 5000 }
+    const { engine } = await device(cloud, clock)
+    cloud.worker([record('classroom-work-w1', { foundAt: clock.now + 4000, classroom: { kind: 'work', courseId: 'c', course: 'DBMS', workId: 'w1' } })])
+    expect(engine.getState().unseenClassroom).toBe(1)
+
+    let heard = 0
+    engine.subscribe(() => heard++)
+    engine.markSeen('classroom')
+    expect(engine.getState().unseenClassroom).toBe(0)
+    // A screen marks the tab seen on every change; a second call must not change anything again.
+    engine.markSeen('classroom')
+    expect(heard).toBe(1)
+  })
+
   it('says when checks have stopped', async () => {
     const cloud = new FakeCloud()
     cloud.setting('accounts', accounts)

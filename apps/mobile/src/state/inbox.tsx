@@ -58,9 +58,9 @@ export function InboxProvider({ children }: { children: ReactNode }) {
   }, [signedIn, notifications, worker])
 
   const state = useSyncExternalStore(engine.subscribe, engine.getState)
-  const value = useMemo<Inbox>(
+  // Kept apart from the state so screens can run effects on them without rerunning on every change.
+  const actions = useMemo<Omit<Inbox, keyof InboxState>>(
     () => ({
-      ...state,
       refresh: () => engine.refresh(),
       addAsTask: (record) => engine.addAsTask(record),
       dismiss: (record, dismissed) => engine.dismiss(record, dismissed),
@@ -71,8 +71,9 @@ export function InboxProvider({ children }: { children: ReactNode }) {
       setAutoTasks: (on) => engine.setAutoTasks(on),
       setCourseColor: (courseId, color) => engine.setCourseColor(courseId, color),
     }),
-    [state, engine],
+    [engine],
   )
+  const value = useMemo<Inbox>(() => ({ ...state, ...actions }), [state, actions])
   return <Context.Provider value={value}>{children}</Context.Provider>
 }
 
