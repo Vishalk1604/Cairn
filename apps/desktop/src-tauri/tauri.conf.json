@@ -50,7 +50,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE-WITH-THE-TAURI-UPDATER-PUBLIC-KEY (see docs/release.md)",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1RDFGMTJEQUE5MzQ1Q0MKUldUTVJaT3FMZkhSTmN2TGI3SUdxTkxIK3hkaytHdUVsSUY2eFVhZDJyQllPZHdvYjNQTUQ0U1oK",
       "endpoints": [
         "https://github.com/Vishalk1604/Cairn/releases/latest/download/latest.json"
       ],
